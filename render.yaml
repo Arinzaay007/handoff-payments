@@ -42,3 +42,12 @@ services:
         sync: false
       - key: MAX_DAILY_MAINNET_USDC_MINOR
         sync: false
+
+      # SERVER-ONLY SECRET. Relay requires this key on POST /quote/v2 from 2 October 2026.
+      # Paste it only into Render's encrypted Variables panel. Never commit it, never send it in chat.
+      - key: RELAY_API_KEY
+        sync: false
+
+      # Optional. Monad JSON-RPC used to verify USDC settlement. Defaults to https://rpc.monad.xyz.
+      - key: MONAD_RPC_URL
+        sync: false

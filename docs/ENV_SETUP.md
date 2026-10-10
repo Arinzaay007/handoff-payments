@@ -84,3 +84,15 @@ Run these files, in order, in the Supabase SQL Editor:
 - Supabase secret keys (`sb_secret_...`) or legacy service-role keys
 - Database passwords
 - Wallet recovery phrases or private keys
+
+## Payment execution
+
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `RELAY_API_KEY` | Server only (Render Variables, `.env.local`) | Sent as `x-api-key` on Relay requests. Required on `POST /quote/v2` from 2 October 2026. Without it, payments show a clear "not configured" state. |
+| `MONAD_RPC_URL` | Server only, optional | Monad JSON-RPC used to verify USDC settlement. Default `https://rpc.monad.xyz`. |
+| `MAX_MAINNET_USDC_MINOR` | Server | Per-payment cap. Default and ceiling `25000000` (25 USDC). Lower values are honoured; higher values are clamped. |
+| `MAX_DAILY_MAINNET_USDC_MINOR` | Server | Rolling 24-hour cap per payer. Default and ceiling `100000000` (100 USDC). |
+
+Never place `RELAY_API_KEY` or any Supabase key in a browser-visible file, `render.yaml`, or Git.
+

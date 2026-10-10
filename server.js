@@ -1,16 +1,20 @@
 const http = require('http');
-const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
-const { status: configurationStatus, publicRuntimeConfig } = require('./src/config');
-const { resolveUsername } = require('./src/usernameService');
+const { config, status: configurationStatus, publicRuntimeConfig } = require('./src/config');
+const { resolvePublicRecipient } = require('./src/usernameService');
 const { requireDynamicUser, requireEmbeddedWallet, hasEmbeddedWallet } = require('./src/dynamicAuth');
 const { getProfileForSubject, claimProfile } = require('./src/profileService');
 const { getPublicProfile } = require('./src/publicProfile');
+const { MONAD, publicSourceNetworks } = require('./src/paymentNetworks');
+const relay = require('./src/relayClient');
+const payments = require('./src/paymentService');
+const { formatUsdc } = require('./src/paymentPolicy');
 
 const root = path.join(__dirname, 'public');
 const PAYMENT_PAGE_PATH = /^\/@([^/]+)\/?$/;
+const PAYMENT_ID_PATH = /^\/api\/payments\/([0-9a-fA-F-]{36})(\/awaiting-signature|\/source-transaction)?$/;
 const port = Number(process.env.PORT || 3000);
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -28,6 +32,31 @@ function send(res, status, body, type = 'application/json; charset=utf-8') {
     'Referrer-Policy': 'strict-origin-when-cross-origin'
   });
   res.end(body);
+}
+
+function publicCaps() {
+  const guards = publicRuntimeConfig().mainnetGuards;
+  return {
+    perPaymentUsdc: formatUsdc(config.limits.maxMainnetUsdcMinor),
+    dailyRollingUsdc: formatUsdc(config.limits.maxDailyMainnetUsdcMinor),
+    perPaymentMaximum: guards.maximumPaymentUsdc,
+    dailyMaximum: guards.maximumDailyUsdc
+  };
+}
+
+// Payment routes never forward raw provider or database text. Our own coded errors pass through;
+// anything else becomes a generic message, and the detail is logged server-side only.
+const PAYMENT_SERVER_CODES = new Set([
+  'RELAY_UNAVAILABLE', 'RELAY_NOT_CONFIGURED', 'ROUTE_UNAVAILABLE', 'PAYMENTS_UNAVAILABLE',
+  'DATABASE_NOT_CONFIGURED', 'DATABASE_UNAVAILABLE'
+]);
+function sendPaymentError(res, error) {
+  const code = typeof error?.code === 'string' ? error.code : '';
+  const status = Number(error?.status) || 0;
+  const ownClientError = /^[A-Z_]+$/.test(code) && status >= 400 && status < 500;
+  if (ownClientError || PAYMENT_SERVER_CODES.has(code)) return sendError(res, error);
+  console.error('Handoff payment step failed:', code || 'UNCLASSIFIED', error?.details?.code || '');
+  return send(res, 500, JSON.stringify({ message: 'Handoff could not complete this step. Try again.', code: 'PAYMENT_ERROR' }));
 }
 
 function sendError(res, error) {
@@ -96,29 +125,6 @@ async function servePaymentPage(req, res, rawHandle) {
   return send(res, 200, req.method === 'HEAD' ? '' : shell, 'text/html; charset=utf-8');
 }
 
-function relayRequest(method, relayPath, payload) {
-  return new Promise((resolve, reject) => {
-    const body = payload ? JSON.stringify(payload) : null;
-    const request = https.request({
-      hostname: 'api.relay.link',
-      path: relayPath,
-      method,
-      headers: body ? {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body)
-      } : {}
-    }, (response) => {
-      let out = '';
-      response.on('data', (chunk) => { out += chunk; });
-      response.on('end', () => resolve({ status: response.statusCode || 502, body: out }));
-    });
-    request.on('error', reject);
-    request.setTimeout(15000, () => request.destroy(new Error('Relay request timed out')));
-    if (body) request.write(body);
-    request.end();
-  });
-}
-
 function readJson(req) {
   return new Promise((resolve, reject) => {
     let data = '';
@@ -144,7 +150,16 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/public-config') {
-    return send(res, 200, JSON.stringify(publicRuntimeConfig()));
+    // Public and display-safe. The network list is the server's source of truth: Solana and TON are
+    // listed as not available yet, and the browser cannot promote them on its own.
+    return send(res, 200, JSON.stringify({
+      ...publicRuntimeConfig(),
+      payments: {
+        sourceNetworks: publicSourceNetworks(),
+        destination: { chainId: MONAD.chainId, name: MONAD.name, asset: MONAD.asset },
+        caps: publicCaps()
+      }
+    }));
   }
 
   if (req.method === 'GET' && url.pathname === '/api/me') {
@@ -201,7 +216,8 @@ const server = http.createServer(async (req, res) => {
     try {
       const handle = url.searchParams.get('handle');
       if (!handle) return send(res, 400, JSON.stringify({ message: 'A Handoff handle is required.' }));
-      const profile = await resolveUsername(handle);
+      // Public projection only: display name, username, settlement. Never the recipient wallet.
+      const profile = await resolvePublicRecipient(handle);
       if (!profile) return send(res, 404, JSON.stringify({ message: 'This Handoff username is not registered.' }));
       return send(res, 200, JSON.stringify(profile));
     } catch (error) {
@@ -226,33 +242,59 @@ const server = http.createServer(async (req, res) => {
     return servePaymentPage(req, res, rawHandle);
   }
 
-  if (req.method === 'GET' && url.pathname === '/api/relay/chains') {
+  if (req.method === 'GET' && url.pathname === '/api/relay/routes') {
+    // Display-safe route status only. Relay's raw chain payload is never forwarded to the browser.
     try {
-      const result = await relayRequest('GET', '/chains');
-      return send(res, result.status, result.body);
+      return send(res, 200, JSON.stringify(await payments.getRouteStatus()));
     } catch (error) {
-      return send(res, 502, JSON.stringify({ message: 'Unable to reach Relay', detail: error.message }));
+      return sendError(res, error);
     }
   }
 
-  if (req.method === 'POST' && url.pathname === '/api/relay/quote') {
+  // Payment quote. The payer sends only their own wallet, a source network, a @username, and an
+  // amount. The recipient wallet is resolved on the server; any other field is rejected.
+  if (req.method === 'POST' && url.pathname === '/api/payments/quote') {
     try {
-      const quote = await readJson(req);
-      const required = ['user', 'originChainId', 'originCurrency', 'destinationChainId', 'destinationCurrency', 'recipientHandle', 'amount', 'tradeType'];
-      const missing = required.filter(key => quote[key] === undefined || quote[key] === '');
-      if (missing.length) return send(res, 400, JSON.stringify({ message: `Missing: ${missing.join(', ')}` }));
-      if (Number(quote.destinationChainId) !== 143) return send(res, 400, JSON.stringify({ message: 'Handoff only settles to Monad (chain 143).' }));
-
-      // The client supplies only a username. The server resolves the active Monad wallet
-      // immediately before quote creation so a browser cannot choose an arbitrary recipient.
-      const profile = await resolveUsername(quote.recipientHandle);
-      if (!profile) return send(res, 404, JSON.stringify({ message: 'This Handoff username is not registered.' }));
-      const { recipientHandle, recipient: ignoredRecipient, ...relayQuote } = quote;
-      relayQuote.recipient = profile.recipient;
-      const result = await relayRequest('POST', '/quote/v2', relayQuote);
-      return send(res, result.status, result.body);
+      const body = await readJson(req);
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return send(res, 400, JSON.stringify({ message: 'Send a quote request.' }));
+      }
+      const allowed = new Set(['payer', 'sourceNetwork', 'recipientHandle', 'amount']);
+      if (Object.keys(body).some(key => !allowed.has(key))) {
+        return send(res, 400, JSON.stringify({ message: 'Only payer, sourceNetwork, recipientHandle, and amount can be submitted.', code: 'FIELD_NOT_ALLOWED' }));
+      }
+      const quote = await payments.createPaymentQuote({
+        payer: body.payer,
+        sourceNetwork: body.sourceNetwork,
+        recipientHandle: body.recipientHandle,
+        amount: body.amount
+      });
+      return send(res, quote.executable ? 201 : 200, JSON.stringify(quote));
     } catch (error) {
-      return sendError(res, error);
+      return sendPaymentError(res, error);
+    }
+  }
+
+  const paymentMatch = url.pathname.match(PAYMENT_ID_PATH);
+  if (paymentMatch) {
+    const [, paymentId, action] = paymentMatch;
+    try {
+      if (req.method === 'GET' && !action) {
+        return send(res, 200, JSON.stringify(await payments.getPaymentReceipt(paymentId)));
+      }
+      if (req.method === 'POST' && action === '/awaiting-signature') {
+        return send(res, 200, JSON.stringify(await payments.markAwaitingSignature(paymentId)));
+      }
+      if (req.method === 'POST' && action === '/source-transaction') {
+        const body = await readJson(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'txHash')) {
+          return send(res, 400, JSON.stringify({ message: 'Send only the source transaction hash.', code: 'FIELD_NOT_ALLOWED' }));
+        }
+        return send(res, 200, JSON.stringify(await payments.recordSourceTransaction(paymentId, body.txHash)));
+      }
+      return send(res, 405, 'Method not allowed', 'text/plain; charset=utf-8');
+    } catch (error) {
+      return sendPaymentError(res, error);
     }
   }
 

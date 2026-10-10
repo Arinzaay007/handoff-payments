@@ -12,10 +12,13 @@
   "dependencies": {
     "@dynamic-labs/sdk-react-core": "^5.10.0",
     "@dynamic-labs/waas-evm": "^5.10.0",
+    "@relay-protocol/settlement-sdk": "^0.0.146",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "viem": "2.57.4"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "esbuild": "^0.28.2",
     "jsdom": "^26.1.0"
   }
