@@ -2,9 +2,10 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { status: configurationStatus, publicRuntimeConfig } = require('./src/config');
 const { resolveUsername } = require('./src/usernameService');
-const { requireDynamicUser, selectVerifiedWallet } = require('./src/dynamicAuth');
+const { requireDynamicUser, requireEmbeddedWallet, hasEmbeddedWallet } = require('./src/dynamicAuth');
 const { getProfileForSubject, claimProfile } = require('./src/profileService');
 
 const root = path.join(__dirname, 'public');
@@ -37,7 +38,10 @@ function sendError(res, error) {
   }
   if (error.details?.code === '23505') status = 409;
   if (error.details?.code === 'P0001') status = 409;
-  return send(res, status, JSON.stringify({ message }));
+  const body = { message };
+  // Stable machine-readable code for our own errors (never a raw provider message).
+  if (error.code && /^[A-Z_]+$/.test(error.code)) body.code = error.code;
+  return send(res, status, JSON.stringify(body));
 }
 
 function relayRequest(method, relayPath, payload) {
@@ -95,11 +99,18 @@ const server = http.createServer(async (req, res) => {
     try {
       const user = await requireDynamicUser(req.headers.authorization);
       const profile = await getProfileForSubject(user.subject);
-      return send(res, 200, JSON.stringify({
-        profile,
-        verifiedWallets: user.verifiedWallets,
-        email: user.email
-      }));
+      // Never return wallet addresses here: onboarding must not expose the recipient wallet.
+      return send(res, 200, JSON.stringify({ profile, email: user.email }));
+    } catch (error) {
+      return sendError(res, error);
+    }
+  }
+
+  // Boolean readiness only. The client polls this while Dynamic provisions the embedded wallet.
+  if (req.method === 'GET' && url.pathname === '/api/me/wallet-status') {
+    try {
+      const user = await requireDynamicUser(req.headers.authorization);
+      return send(res, 200, JSON.stringify({ ready: hasEmbeddedWallet(user) }));
     } catch (error) {
       return sendError(res, error);
     }
@@ -109,7 +120,19 @@ const server = http.createServer(async (req, res) => {
     try {
       const user = await requireDynamicUser(req.headers.authorization);
       const body = await readJson(req);
-      const walletAddress = selectVerifiedWallet(user, body.walletAddress);
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return send(res, 400, JSON.stringify({ message: 'Send a Handoff username.' }));
+      }
+      // The only accepted field is username. Any other field, including walletAddress, is rejected
+      // so a browser can never choose the recipient.
+      const extraFields = Object.keys(body).filter(key => key !== 'username');
+      if (extraFields.length) {
+        return send(res, 400, JSON.stringify({ message: 'Only a Handoff username can be submitted.' }));
+      }
+      if (typeof body.username !== 'string') {
+        return send(res, 400, JSON.stringify({ message: 'Choose a Handoff username.' }));
+      }
+      const walletAddress = requireEmbeddedWallet(user);
       const profile = await claimProfile({
         subject: user.subject,
         username: body.username,
@@ -170,10 +193,17 @@ const server = http.createServer(async (req, res) => {
   if (!filePath.startsWith(root)) return send(res, 403, 'Forbidden', 'text/plain; charset=utf-8');
   fs.stat(filePath, (statError, stat) => {
     if (statError || !stat.isFile()) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
-    const type = contentTypes[path.extname(filePath)] || 'application/octet-stream';
-    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    const extension = path.extname(filePath);
+    const type = contentTypes[extension] || 'application/octet-stream';
+    const headers = { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', Vary: 'Accept-Encoding' };
+    // The Dynamic SDK bundle is large; compress text assets when the browser accepts gzip.
+    const compressible = ['.html', '.css', '.js', '.json', '.svg'].includes(extension);
+    const acceptsGzip = /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''));
+    res.writeHead(200, acceptsGzip && compressible ? { ...headers, 'Content-Encoding': 'gzip' } : headers);
     if (req.method === 'HEAD') return res.end();
-    fs.createReadStream(filePath).pipe(res);
+    const stream = fs.createReadStream(filePath);
+    if (acceptsGzip && compressible) stream.pipe(zlib.createGzip()).pipe(res);
+    else stream.pipe(res);
   });
 });
 

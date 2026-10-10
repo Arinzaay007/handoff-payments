@@ -1,6 +1,5 @@
 const crypto = require('crypto');
 const { config } = require('./config');
-const { assertEvmAddress } = require('./identity');
 
 const DYNAMIC_JWKS_BASE = 'https://app.dynamicauth.com/api/v0/sdk';
 const JWKS_CACHE_MS = 60 * 60 * 1000;
@@ -75,12 +74,25 @@ function bearerToken(value) {
   return matched?.[1]?.trim() || null;
 }
 
-function verifiedEvmWallets(payload) {
+const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+const EMBEDDED_WALLET_PROVIDER = 'embeddedWallet';
+const EVM_CHAIN_NAMES = new Set(['EVM', 'EIP155', 'ETH']);
+
+// Only a Dynamic embedded wallet credential on an EVM chain can name a Handoff recipient.
+// External wallets, social/email/passkey credentials, and other chains are ignored.
+function isEmbeddedEvmCredential(credential) {
+  if (!credential || typeof credential !== 'object') return false;
+  if (credential.format !== undefined && credential.format !== 'blockchain') return false;
+  if (credential.wallet_provider !== EMBEDDED_WALLET_PROVIDER) return false;
+  if (!EVM_CHAIN_NAMES.has(String(credential.chain || '').toUpperCase())) return false;
+  return EVM_ADDRESS_RE.test(String(credential.address || ''));
+}
+
+function embeddedEvmWallets(payload) {
   const credentials = Array.isArray(payload.verified_credentials) ? payload.verified_credentials : [];
   return [...new Set(credentials
-    .map(credential => credential?.address)
-    .filter(address => /^0x[0-9a-fA-F]{40}$/.test(String(address || '')))
-    .map(address => String(address).toLowerCase()))];
+    .filter(isEmbeddedEvmCredential)
+    .map(credential => String(credential.address).toLowerCase()))];
 }
 
 async function requireDynamicUser(authorization) {
@@ -131,18 +143,22 @@ async function requireDynamicUser(authorization) {
     subject: String(parsed.payload.sub),
     email: typeof parsed.payload.email === 'string' ? parsed.payload.email : null,
     displayName: [parsed.payload.given_name, parsed.payload.family_name].filter(Boolean).join(' ').trim() || parsed.payload.alias || null,
-    verifiedWallets: verifiedEvmWallets(parsed.payload)
+    embeddedEvmWallets: embeddedEvmWallets(parsed.payload)
   };
 }
 
-function selectVerifiedWallet(user, requestedAddress) {
-  const normalized = requestedAddress ? assertEvmAddress(requestedAddress).toLowerCase() : null;
-  if (normalized && user.verifiedWallets.includes(normalized)) return normalized;
-  if (!normalized && user.verifiedWallets.length === 1) return user.verifiedWallets[0];
-  if (!user.verifiedWallets.length) {
-    throw authError('No verified EVM wallet is attached to this Dynamic session. Finish wallet creation, then sign in again.', 'NO_VERIFIED_WALLET', 409);
+// The recipient is the single embedded EVM wallet verified by the Dynamic session.
+// The caller never supplies an address. Zero or ambiguous wallets fail closed.
+function requireEmbeddedWallet(user) {
+  if (user.embeddedEvmWallets.length === 1) return user.embeddedEvmWallets[0];
+  if (user.embeddedEvmWallets.length === 0) {
+    throw authError('Your secure payment account is still being set up.', 'EMBEDDED_WALLET_PENDING', 409);
   }
-  throw authError('Select a wallet verified by your Dynamic session.', 'WALLET_NOT_VERIFIED', 403);
+  throw authError('We could not confirm your secure payment account. Retry wallet setup.', 'EMBEDDED_WALLET_AMBIGUOUS', 409);
 }
 
-module.exports = { requireDynamicUser, selectVerifiedWallet };
+function hasEmbeddedWallet(user) {
+  return user.embeddedEvmWallets.length === 1;
+}
+
+module.exports = { requireDynamicUser, requireEmbeddedWallet, hasEmbeddedWallet, isEmbeddedEvmCredential, authError };

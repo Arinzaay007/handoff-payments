@@ -56,7 +56,9 @@ The tiny local environment loader fills only unset values, so real host environm
 - The Dynamic client is initialized with `DYNAMIC_ENVIRONMENT_ID` from `GET /api/public-config`.
 - Add every exact browser origin you will use to Dynamic **CORS origins**: `http://localhost:3000` for local development and the exact deployed HTTPS domain for production. Do not use a wildcard for a payment app.
 - Handoff verifies the Dynamic access-token signature against Dynamic’s public JWKS and requires the Live environment ID plus the `user:basic` scope before it accepts an authenticated request.
-- Handoff takes the Monad recipient only from an EVM wallet in the token’s verified Dynamic credentials. A browser cannot submit an arbitrary recipient wallet.
+- Handoff takes the Monad recipient only from a Dynamic **embedded** EVM wallet credential (`wallet_provider: embeddedWallet`) in the token’s verified credentials. A browser cannot submit an arbitrary recipient wallet.
+- The browser SDK registers only embedded EVM wallet connectors. Injected, WalletConnect, and MetaMask connectors and social providers are not registered for recipient onboarding.
+- In the Dynamic dashboard, keep phone, SMS, WhatsApp, and social sign-in disabled, and keep email and passkey enabled. Dashboard settings control which sign-in methods the hosted widget shows.
 
 ## Supabase migration order
 
@@ -70,7 +72,8 @@ Run these files, in order, in the Supabase SQL Editor:
 - `GET /api/config` returns only readiness booleans and mainnet caps.
 - `GET /api/public-config` returns only the Dynamic Environment ID and mainnet caps.
 - `GET /api/me` requires a verified Dynamic access token.
-- `POST /api/me/claim` requires a verified Dynamic token, one of that token’s verified EVM wallets, and the second Supabase migration.
+- `GET /api/me/wallet-status` returns only `{ ready: boolean }` for the verified Dynamic session. It never returns an address.
+- `POST /api/me/claim` accepts only `{ "username" }`. It requires a verified Dynamic token with exactly one embedded EVM wallet credential, and the second Supabase migration. Any other field, including `walletAddress`, is rejected with 400.
 - `GET /api/public/resolve?handle=ada` resolves only a registered Handoff username to its single active Monad recipient wallet.
 
 ## Never expose

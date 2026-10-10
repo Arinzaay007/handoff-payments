@@ -1,124 +1,104 @@
+/**
+ * Browser bundle: Dynamic hosted (widget) auth for Handoff recipient onboarding.
+ *
+ * Built by `npm run build` into public/dynamic-client.js (never committed).
+ *
+ * Exposes window.HandoffDynamic:
+ *   initialize({ environmentId, onChange })  -> Promise, resolves when the SDK has loaded
+ *   openAuth()          opens Dynamic's hosted sign-in widget (email code or passkey)
+ *   getToken()          current Dynamic access token, or null (sent to the server as a Bearer)
+ *   retryWalletSetup()  asks Dynamic to provision the embedded EVM account again
+ *   signOut()           ends the Dynamic session
+ *
+ * Handoff never receives, stores, exports, imports, encrypts, or recovers a private key.
+ * Key material stays inside Dynamic's embedded-wallet infrastructure.
+ */
+import { createElement as h, useEffect, useRef } from 'react';
+import { createRoot } from 'react-dom/client';
 import {
-  createDynamicClient,
-  getWalletAccounts,
-  initializeClient,
-  logout,
-  registerPasskey,
-  sendEmailOTP,
-  signInWithPasskey,
-  verifyOTP,
-  waitForClientInitialized
-} from '@dynamic-labs-sdk/client';
-import { createWaasWalletAccounts, getChainsMissingWaasWalletAccounts } from '@dynamic-labs-sdk/client/waas';
-import { addEvmExtension, isEvmWalletAccount } from '@dynamic-labs-sdk/evm';
+  ChainEnum,
+  DynamicContextProvider,
+  getAuthToken,
+  useDynamicContext,
+  useDynamicWaas,
+  useIsLoggedIn
+} from '@dynamic-labs/sdk-react-core';
+import { DynamicWaasEVMConnectors } from '@dynamic-labs/waas-evm';
+import { buildDynamicSettings } from './dynamicSettings.js';
 
-let dynamicClient;
-let initializedEnvironmentId;
+let api = null;
+let apiWaiters = [];
 
-function safeUser(user) {
-  if (!user) return null;
-  return {
-    id: user.id || user.userId || null,
-    email: user.email || null,
-    displayName: [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || user.alias || null
-  };
+function onApiReady(callback) {
+  if (api) callback(api);
+  else apiWaiters.push(callback);
 }
 
-async function snapshot() {
-  const accounts = await getWalletAccounts();
-  const evmAccounts = accounts
-    .filter(isEvmWalletAccount)
-    .map(account => ({ address: account.address, chain: account.chain || 'EVM' }));
-  return {
-    user: safeUser(dynamicClient?.user),
-    wallets: evmAccounts,
-    token: dynamicClient?.token || null
-  };
+function requireApi() {
+  if (!api) throw new Error('Secure sign-in is still loading. Try again in a moment.');
+  return api;
 }
 
-// Makes sure a signed-in user has an EVM embedded wallet, then rotates the token.
-// Never throws: any failure is logged as a warning and the current snapshot is returned.
-async function ensureEvmWallet() {
-  try {
-    if (!dynamicClient?.user) return snapshot();
+// Lives inside DynamicContextProvider so it can use the SDK hooks. It renders nothing.
+function DynamicBridge({ onChange }) {
+  const { setShowAuthFlow, sdkHasLoaded, handleLogOut } = useDynamicContext();
+  const isLoggedIn = useIsLoggedIn();
+  const { createWalletAccount } = useDynamicWaas();
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
-    const accounts = await getWalletAccounts();
-    if (accounts.some(isEvmWalletAccount)) return snapshot();
+  useEffect(() => {
+    api = {
+      openAuth: () => setShowAuthFlow(true),
+      getToken: () => getAuthToken() || null,
+      retryWalletSetup: () => createWalletAccount(
+        [ChainEnum.Evm],
+        undefined,
+        undefined,
+        { skipCloseAuthFlow: true }
+      ),
+      signOut: () => handleLogOut()
+    };
+    const waiters = apiWaiters;
+    apiWaiters = [];
+    waiters.forEach(callback => callback(api));
+  }, [createWalletAccount, handleLogOut, setShowAuthFlow]);
 
-    const evmChains = getChainsMissingWaasWalletAccounts().filter(chain => chain === 'EVM');
-    if (evmChains.length > 0) {
-      // createWaasWalletAccounts refreshes auth internally; no extra token rotation needed.
-      await createWaasWalletAccounts({ chains: evmChains });
-    }
-  } catch (error) {
-    console.warn('Handoff: could not ensure EVM wallet for this session.', error);
-  }
-  return snapshot();
+  useEffect(() => {
+    if (!sdkHasLoaded) return;
+    onChangeRef.current?.({ signedIn: Boolean(isLoggedIn) });
+  }, [sdkHasLoaded, isLoggedIn]);
+
+  return null;
 }
 
-async function initialize({ environmentId }) {
-  if (!environmentId) throw new Error('Dynamic is not configured for this deployment.');
-  if (dynamicClient && initializedEnvironmentId === environmentId) return snapshot();
+let mounted = null;
 
-  dynamicClient = createDynamicClient({
-    autoInitialize: false,
+function initialize({ environmentId, onChange } = {}) {
+  if (mounted) return mounted;
+  const settings = buildDynamicSettings({
     environmentId,
-    metadata: {
-      name: 'Handoff',
-      universalLink: window.location.origin
-    }
+    connectors: [DynamicWaasEVMConnectors]
   });
-  initializedEnvironmentId = environmentId;
-  addEvmExtension();
-  await initializeClient();
-  await waitForClientInitialized(dynamicClient);
-  return ensureEvmWallet();
-}
+  const container = document.createElement('div');
+  container.id = 'handoff-dynamic-root';
+  container.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(container);
 
-async function sendEmailCode(email) {
-  if (!dynamicClient) throw new Error('Dynamic has not initialized.');
-  // A stale authenticated session makes verifyOTP take the credential-linking path,
-  // which needs an elevated token. Handoff only does normal email sign-in, so clear it first.
-  if (dynamicClient.user) {
-    await logout();
-  }
-  return sendEmailOTP({ email });
-}
+  // The provider mounts Dynamic's hosted auth modal itself, so no visible widget is needed here.
+  createRoot(container).render(
+    h(DynamicContextProvider, { settings },
+      h(DynamicBridge, { onChange: onChange || (() => {}) }))
+  );
 
-async function verifyEmailCode(otpVerification, verificationToken) {
-  if (!dynamicClient) throw new Error('Dynamic has not initialized.');
-  await verifyOTP({ otpVerification, verificationToken });
-  return ensureEvmWallet();
-}
-
-async function usePasskey() {
-  if (!dynamicClient) throw new Error('Dynamic has not initialized.');
-  await signInWithPasskey();
-  return ensureEvmWallet();
-}
-
-async function addPasskey() {
-  if (!dynamicClient) throw new Error('Dynamic has not initialized.');
-  await registerPasskey();
-}
-
-async function signOut() {
-  if (!dynamicClient) return;
-  await logout();
-  return snapshot();
-}
-
-function getToken() {
-  return dynamicClient?.token || null;
+  mounted = new Promise(resolve => onApiReady(resolve));
+  return mounted;
 }
 
 window.HandoffDynamic = {
   initialize,
-  sendEmailCode,
-  verifyEmailCode,
-  usePasskey,
-  addPasskey,
-  signOut,
-  getToken,
-  snapshot
+  openAuth: () => requireApi().openAuth(),
+  getToken: () => (api ? api.getToken() : null),
+  retryWalletSetup: () => requireApi().retryWalletSetup(),
+  signOut: () => (api ? api.signOut() : undefined)
 };
