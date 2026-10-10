@@ -960,6 +960,21 @@ async function signOut() {
   toast('Signed out of Handoff.');
 }
 
+// Identity → Open secure Dynamic wallet settings. Owner-only, and delegated completely to
+// Dynamic's profile UI for the existing wallet. This does not migrate, create, replace, or select
+// a wallet in Handoff.
+function openWalletSettings() {
+  if (!state.auth.profile) return openAuthFlow();
+  if (!window.HandoffDynamic?.openWalletSettings) {
+    return toast('Secure wallet settings are still loading. Try again in a moment.');
+  }
+  try {
+    window.HandoffDynamic.openWalletSettings();
+  } catch {
+    toast('Secure wallet settings could not be opened. Try again in a moment.');
+  }
+}
+
 // Identity → Export wallet key. Owner-only: the button is inert without a signed-in profile, and
 // the export itself is Dynamic's embedded-wallet reveal, rendered only inside Dynamic's isolated
 // secure iframe. Handoff code, the server, and this dialog never receive the exported key.
@@ -1013,6 +1028,7 @@ function bindEvents() {
   $('#copyPublicLink').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
   $('#copyWallet').addEventListener('click', () => state.auth.profile ? copyText(state.auth.profile.wallet, 'Monad recipient wallet copied') : openAuthFlow());
   $('#shareProfile').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
+  $('#openWalletSettings').addEventListener('click', openWalletSettings);
   $('#exportWalletKey').addEventListener('click', openExportKey);
   $('#continueExportKey').addEventListener('click', continueExportKey);
   $('#profileButton').addEventListener('click', () => state.auth.profile ? goTo('identity') : openAuthFlow());

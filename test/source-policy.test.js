@@ -33,7 +33,9 @@ test('key export is delegated to Dynamic\'s secure reveal and the bundle never h
   // key material itself: it drives the flow and discards the result.
   const exportBundle = bundleSource + exportSource;
   assert.match(bundleSource, /useEmbeddedReveal/);
-  assert.match(exportSource, /initExportProcess\(false, true\)/, 'private-key reveal via Dynamic\'s flow');
+  assert.match(exportSource, /initExportProcess\(false, false, primaryWallet\.id\)/,
+    'private-key reveal targets the existing primary wallet through Dynamic\'s flow');
+  assert.match(exportSource, /if \(!primaryWallet\?\.id\)/, 'reveal fails closed without a primary wallet ID');
   for (const forbidden of [
     'importPrivateKey', 'exportClientKeyshares', 'backupKeyShares',
     'mnemonic', 'seedPhrase', 'localStorage', 'sessionStorage', 'indexedDB', 'document.cookie'
@@ -48,7 +50,7 @@ test('key export is delegated to Dynamic\'s secure reveal and the bundle never h
 
 test('wallet export authorization (step-up, then MFA) always runs before the reveal', () => {
   const authorize = exportSource.indexOf('await authorizeWalletExport(deps);');
-  const reveal = exportSource.indexOf('await deps.initExportProcess(false, true);');
+  const reveal = exportSource.indexOf('await initExportProcess(false, false, primaryWallet.id);');
   const legacyReveal = exportSource.indexOf('await deps.revealLegacyWalletKey({');
   assert.ok(authorize > 0, 'runWalletExport authorizes first');
   assert.ok(reveal > authorize && legacyReveal > authorize, 'both reveals come after authorization');
@@ -79,6 +81,19 @@ test('legacy V1/V2 wallets use the official migration package without auto-upgra
   assert.equal(/DYNAMIC_ENVIRONMENT_ID/.test(exportSource + bundleSource), false, 'the environment id stays in config, not the export code');
 });
 
+test('Identity opens secure wallet settings only through Dynamic\'s existing-wallet profile', () => {
+  assert.match(indexHtml, /id="openWalletSettings">Open secure Dynamic wallet settings<\/button>/);
+  assert.match(bundleSource, /openWalletSettings: \(\) => setShowDynamicUserProfile\(true\)/);
+  assert.match(appJs, /window\.HandoffDynamic\.openWalletSettings\(\)/);
+
+  const settingsAction = appJs.slice(
+    appJs.indexOf('function openWalletSettings()'),
+    appJs.indexOf('// Identity → Export wallet key')
+  );
+  assert.doesNotMatch(settingsAction, /createWallet|upgrade|migrate|replace|primaryWallet|walletAddress|fetch\(/i,
+    'opening settings must not create, migrate, replace, select, or send a wallet');
+});
+
 test('the bundle exposes only the documented hosted-auth and key-export surface', () => {
   const exposed = bundleSource.slice(bundleSource.indexOf('window.HandoffDynamic = {'));
   assert.match(exposed, /initialize,/);
@@ -86,6 +101,7 @@ test('the bundle exposes only the documented hosted-auth and key-export surface'
   assert.match(exposed, /getToken:/);
   assert.match(exposed, /retryWalletSetup:/);
   assert.match(exposed, /signOut:/);
+  assert.match(exposed, /openWalletSettings:/);
   assert.match(exposed, /exportWalletKey:/);
   assert.match(exposed, /clearExportFrame:/);
   assert.doesNotMatch(exposed, /sendEmailOTP|verifyOTP|registerPasskey|signInWithPasskey|usePasskey/);
