@@ -25,24 +25,46 @@ test('the browser bundle registers only Dynamic embedded EVM wallet connectors',
   }
 });
 
-test('the browser bundle never exports, imports, or handles private key material', () => {
+test('key export is delegated to Dynamic\'s secure reveal and the bundle never handles key material', () => {
+  // The owner key export (Identity → Export wallet key) must be Dynamic's own embedded-wallet
+  // reveal flow (useEmbeddedReveal → initExportProcess), which renders the key only inside
+  // Dynamic's isolated secure iframe. The bundle never imports, receives, persists, or forwards
+  // key material itself: it drives the flow and discards the result.
+  assert.match(bundleSource, /useEmbeddedReveal/);
+  assert.match(bundleSource, /initExportProcess\(false, true\)/, 'private-key reveal via Dynamic\'s flow');
   for (const forbidden of [
-    'exportPrivateKey', 'importPrivateKey', 'exportClientKeyshares', 'exportWalletKey',
-    'backupKeyShares', 'privateKey', 'mnemonic', 'seedPhrase'
+    'importPrivateKey', 'exportClientKeyshares', 'backupKeyShares',
+    'mnemonic', 'seedPhrase', 'localStorage', 'sessionStorage', 'indexedDB', 'document.cookie'
   ]) {
     assert.equal(bundleSource.includes(forbidden), false, `bundle must not reference ${forbidden}`);
   }
+  // Nothing is sent to a server and nothing is logged: the reveal result is discarded.
+  assert.equal(/fetch\(/.test(bundleSource), false, 'the bundle never posts anything anywhere');
+  assert.equal(/console\.log/.test(bundleSource), false);
   assert.equal(read('src/dynamicSettings.js').includes('privateKey'), false);
 });
 
-test('the bundle exposes only the documented hosted-auth surface', () => {
+test('the bundle exposes only the documented hosted-auth and key-export surface', () => {
   const exposed = bundleSource.slice(bundleSource.indexOf('window.HandoffDynamic = {'));
   assert.match(exposed, /initialize,/);
   assert.match(exposed, /openAuth:/);
   assert.match(exposed, /getToken:/);
   assert.match(exposed, /retryWalletSetup:/);
   assert.match(exposed, /signOut:/);
+  assert.match(exposed, /exportWalletKey:/);
+  assert.match(exposed, /clearExportFrame:/);
   assert.doesNotMatch(exposed, /sendEmailOTP|verifyOTP|registerPasskey|signInWithPasskey|usePasskey/);
+  // Dynamic's export frame is only ever cleared — never read, captured, or returned.
+  assert.match(bundleSource, /getExportHandler\?\.\(\)\?\.clear\?\.\(\)/);
+  assert.doesNotMatch(bundleSource, /=\s*[^=\n]*getExportHandler/);
+});
+
+test('the server has no endpoint that exports or accepts a key', () => {
+  for (const forbidden of ['privateKey', 'importPrivateKey', 'mnemonic', 'seedPhrase', 'exportWalletKey']) {
+    assert.equal(serverJs.includes(forbidden), false, `server.js must not reference ${forbidden}`);
+  }
+  assert.doesNotMatch(serverJs, /\/api\/[a-z0-9/-]*key[a-z0-9-]*/i, 'no API path may deal with keys');
+  assert.match(serverJs, /requireDynamicUser\(req\.headers\.authorization\)/, 'the owner endpoints stay authenticated');
 });
 
 test('onboarding uses Dynamic\'s hosted widget and has no hand-built email, code, or passkey fields', () => {

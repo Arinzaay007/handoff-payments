@@ -96,8 +96,10 @@ module.exports = {
   RECEIPT_ORDER,
   LABELS,
   FAILURE_MESSAGES,
+  PRE_SUBMISSION_STATES,
   receiptStateForRelayStatus,
   nextReceiptState,
   isFinal,
+  networkByChainId,
   publicReceipt
 };

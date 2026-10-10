@@ -20,7 +20,7 @@ function freePort() {
   });
 }
 
-async function startServer({ environmentId, jwks }) {
+async function startServer({ environmentId, jwks, monadRpc }) {
   const port = await freePort();
   const logFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'handoff-test-')), 'outbound.log');
   const preload = pathToFileURL(path.join(__dirname, 'preload.mjs')).href;
@@ -34,7 +34,15 @@ async function startServer({ environmentId, jwks }) {
       SUPABASE_URL: 'https://supabase.test',
       SUPABASE_SECRET_KEY: 'test-secret-not-real',
       HANDOFF_TEST_JWKS: JSON.stringify(jwks),
-      HANDOFF_TEST_LOG: logFile
+      HANDOFF_TEST_LOG: logFile,
+      // Optional Monad RPC mock for balance-read tests. Without it, the server keeps its default
+      // RPC URL and the preload blocks it, exactly like any other unmocked host.
+      ...(monadRpc ? {
+        MONAD_RPC_URL: monadRpc.url || 'https://monad-rpc.test',
+        HANDOFF_TEST_MONAD_RPC_URL: monadRpc.url || 'https://monad-rpc.test',
+        HANDOFF_TEST_MONAD_RPC_MODE: monadRpc.mode || 'ok',
+        ...(monadRpc.balanceHex ? { HANDOFF_TEST_MONAD_BALANCE_HEX: monadRpc.balanceHex } : {})
+      } : {})
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });

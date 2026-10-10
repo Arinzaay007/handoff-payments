@@ -73,6 +73,7 @@ Run these files, in order, in the Supabase SQL Editor:
 - `GET /api/public-config` returns only the Dynamic Environment ID and mainnet caps.
 - `GET /api/me` requires a verified Dynamic access token.
 - `GET /api/me/wallet-status` returns only `{ ready: boolean }` for the verified Dynamic session. It never returns an address.
+- `GET /api/me/portfolio` requires a verified Dynamic access token and is scoped to that user's own recipient profile. It returns the real on-chain Monad USDC balance (chain ID 143 verified, ERC-20 `balanceOf` on Monad USDC) with `status: "available" | "unavailable"` — never a database total and never a fake zero — plus receipt activity shown only after the source transaction was submitted. It never returns a payer address, key material, or a recipient wallet. There is no endpoint that exports or accepts a key.
 - `POST /api/me/claim` accepts only `{ "username" }`. It requires a verified Dynamic token with exactly one embedded EVM wallet credential, and the second Supabase migration. Any other field, including `walletAddress`, is rejected with 400.
 - `GET /api/public/resolve?handle=ada` resolves only a registered Handoff username to its single active Monad recipient wallet.
 - `GET /@ada` serves the public payment page for a registered username. The page URL is derived from the request origin, so the same build works on any host. Unknown or unfunded handles get a not-found page with `noindex`.
@@ -90,7 +91,7 @@ Run these files, in order, in the Supabase SQL Editor:
 | Variable | Where | Purpose |
 | --- | --- | --- |
 | `RELAY_API_KEY` | Server only (Render Variables, `.env.local`) | Sent as `x-api-key` on Relay requests. Required on `POST /quote/v2` from 2 October 2026. Without it, payments show a clear "not configured" state. |
-| `MONAD_RPC_URL` | Server only, optional | Monad JSON-RPC used to verify USDC settlement. Default `https://rpc.monad.xyz`. |
+| `MONAD_RPC_URL` | Server only, optional | Monad JSON-RPC used to verify USDC settlement and to read the owner's verified Monad USDC balance. Default `https://rpc.monad.xyz` (chain 143). When it cannot be read, the dashboard shows "syncing/unavailable", never a fake zero. |
 | `MAX_MAINNET_USDC_MINOR` | Server | Per-payment cap. Default and ceiling `25000000` (25 USDC). Lower values are honoured; higher values are clamped. |
 | `MAX_DAILY_MAINNET_USDC_MINOR` | Server | Rolling 24-hour cap per payer. Default and ceiling `100000000` (100 USDC). |
 

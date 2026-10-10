@@ -35,6 +35,8 @@ src/
   paymentService.js          # quote, awaiting-signature, source hash, Relay refresh, receipts
   paymentStatus.js           # receipt states and the public receipt shape
   monadSettlement.js         # on-chain check of the Monad USDC transfer before anything is "Settled"
+  monadBalance.js            # server-only Monad USDC balanceOf read (chain 143 verified first)
+  portfolio.js               # GET /api/me/portfolio: verified balance + recipient activity, owner-only
 test/payment-*.test.js       # payment execution, migration (PGlite), and checkout (JSDOM) suites
 contracts/UsernameRegistry.sol
 server.js
@@ -64,6 +66,8 @@ server, build script, and `.env` loader all expect these nested paths.
 - **Quote-only safety.** A route without an executable, verified transaction is labelled **Quote preview only**. Its submit control is disabled, nothing is reserved against the daily cap, and no quote ever reads as paid, sent, or settled.
 - **Receipts:** Quote received → Awaiting payer signature → Transaction submitted → Source confirmed → Routing → Settled as USDC on Monad, or Failed / Refunded. States only move forward, and final states never change.
 - **Caps enforced on the server and in the database:** 25 USDC per payment and 100 USDC in any rolling 24 hours per payer wallet. The environment can lower these, never raise them.
+- **A verified owner dashboard.** The signed-in recipient's `GET /api/me/portfolio` reports the real Monad USDC balance — an on-chain ERC-20 `balanceOf` read against the Monad USDC contract after verifying the RPC serves chain ID 143 — plus verified recipient receipt activity, scoped strictly to the signed-in profile and shown only after an on-chain source transaction was submitted (no `quote_created` or `awaiting_sender` records). A database total is never presented as a wallet balance, and when the RPC cannot be read the dashboard says **syncing/unavailable** rather than a fake zero. No payer address, key material, or recipient wallet leaves the server for this endpoint.
+- **Identity → Export wallet key, owner-only.** The export is Dynamic's embedded-wallet reveal flow (`exportPrivateKey` through Dynamic's connector), rendered only inside Dynamic's isolated secure iframe. Handoff browser code, the server, Render, Supabase, logs, and analytics never receive or persist the private key, the reveal result is discarded, closing the dialog clears Dynamic's export frame, and no endpoint exports or accepts a key.
 - A small Node server that proxies Relay's live `GET /chains` and `POST /quote/v2` APIs for the server only. The browser sees a sanitised per-network status at `GET /api/relay/routes`, never Relay's raw payload.
 - A minimal non-custodial `UsernameRegistry.sol` reference contract. It is not deployed or audited.
 

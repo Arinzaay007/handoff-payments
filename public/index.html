@@ -75,7 +75,7 @@
 
       <section class="page" id="identityPage">
         <div class="wide-intro"><span class="label">PAYMENT IDENTITY</span><h2>Your name, not your wallet address.</h2><p>Only registered Handoff usernames resolve to an active Monad recipient wallet.</p></div>
-        <div class="identity-layout"><article class="panel profile-card"><div class="profile-cover"></div><div id="profileAvatar" class="profile-avatar gradient-avatar">H</div><h2 id="profileName">Sign in to Handoff</h2><p id="profileHandle">Your Monad recipient wallet stays under your control.</p><div class="wallet-address"><span>Monad recipient wallet</span><code id="walletAddress">—</code><button id="copyWallet" class="copy-small">Copy</button></div><button class="button button-light full" id="shareProfile">Share my payment page <span>↗</span></button></article><article class="panel aliases-panel"><div class="panel-head"><div><span class="label">HANDOFF USERNAME</span><h2>Claim one canonical payment identity.</h2></div></div><div id="aliasList" class="alias-list"></div><div class="alias-safety"><span>✓</span><p><strong>Recipient safety:</strong> the server verifies your Dynamic session and wallet before a handle can resolve. Handoff never holds funds.</p></div></article></div>
+        <div class="identity-layout"><article class="panel profile-card"><div class="profile-cover"></div><div id="profileAvatar" class="profile-avatar gradient-avatar">H</div><h2 id="profileName">Sign in to Handoff</h2><p id="profileHandle">Your Monad recipient wallet stays under your control.</p><div class="wallet-address"><span>Monad recipient wallet</span><code id="walletAddress">—</code><button id="copyWallet" class="copy-small">Copy</button></div><button class="button button-light full" id="shareProfile">Share my payment page <span>↗</span></button><button class="button button-ghost-dark full" id="exportWalletKey">Export wallet key</button></article><article class="panel aliases-panel"><div class="panel-head"><div><span class="label">HANDOFF USERNAME</span><h2>Claim one canonical payment identity.</h2></div></div><div id="aliasList" class="alias-list"></div><div class="alias-safety"><span>✓</span><p><strong>Recipient safety:</strong> the server verifies your Dynamic session and wallet before a handle can resolve. Handoff never holds funds.</p></div></article></div>
       </section>
     </main>
   </div>
@@ -109,6 +109,15 @@
   </section>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <section class="modal compact-modal" id="exportKeyModal" role="dialog" aria-modal="true" aria-labelledby="exportKeyTitle">
+    <button class="modal-close" data-close="exportKeyModal" aria-label="Close">×</button>
+    <span class="label">SECURE KEY EXPORT</span>
+    <h2 id="exportKeyTitle">Export your wallet key.</h2>
+    <p>Dynamic opens its own secure window and shows the key only inside that isolated frame. Handoff never sees, receives, or stores it. Anyone with this key controls your USDC — keep it secret.</p>
+    <button id="continueExportKey" class="button button-dark full">Continue in secure window <span>→</span></button>
+    <p class="modal-note" id="exportKeyStatus">The secure window belongs to Dynamic. Closing this dialog clears it.</p>
+  </section>
   <script src="/app.js"></script>
 </body>
 </html>

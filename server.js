@@ -8,6 +8,7 @@ const { requireDynamicUser, requireEmbeddedWallet, hasEmbeddedWallet } = require
 const { getProfileForSubject, claimProfile } = require('./src/profileService');
 const { getPublicProfile } = require('./src/publicProfile');
 const { MONAD, publicSourceNetworks } = require('./src/paymentNetworks');
+const { getRecipientPortfolio } = require('./src/portfolio');
 const relay = require('./src/relayClient');
 const payments = require('./src/paymentService');
 const { formatUsdc } = require('./src/paymentPolicy');
@@ -178,6 +179,22 @@ const server = http.createServer(async (req, res) => {
     try {
       const user = await requireDynamicUser(req.headers.authorization);
       return send(res, 200, JSON.stringify({ ready: hasEmbeddedWallet(user) }));
+    } catch (error) {
+      return sendError(res, error);
+    }
+  }
+
+  // The signed-in owner's portfolio: the real Monad USDC balance (read on-chain, never a database
+  // total) and verified recipient receipt activity. Scope is strictly the caller's own profile;
+  // the response carries no payer address, no keys, and no recipient wallet.
+  if (req.method === 'GET' && url.pathname === '/api/me/portfolio') {
+    try {
+      const user = await requireDynamicUser(req.headers.authorization);
+      const profile = await getProfileForSubject(user.subject);
+      if (!profile) {
+        return send(res, 404, JSON.stringify({ message: 'Claim your Handoff username first.', code: 'PROFILE_NOT_FOUND' }));
+      }
+      return send(res, 200, JSON.stringify(await getRecipientPortfolio(profile)));
     } catch (error) {
       return sendError(res, error);
     }

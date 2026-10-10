@@ -1,5 +1,6 @@
 /**
- * Browser bundle: Dynamic hosted (widget) auth for Handoff recipient onboarding.
+ * Browser bundle: Dynamic hosted (widget) auth for Handoff recipient onboarding, plus the
+ * owner-only secure key export.
  *
  * Built by `npm run build` into public/dynamic-client.js (never committed).
  *
@@ -9,9 +10,14 @@
  *   getToken()          current Dynamic access token, or null (sent to the server as a Bearer)
  *   retryWalletSetup()  asks Dynamic to provision the embedded EVM account again
  *   signOut()           ends the Dynamic session
+ *   exportWalletKey()   opens Dynamic's embedded-wallet key reveal for the signed-in owner
+ *   clearExportFrame()  clears Dynamic's export frame (called when the Handoff modal closes)
  *
  * Handoff never receives, stores, exports, imports, encrypts, or recovers a private key.
- * Key material stays inside Dynamic's embedded-wallet infrastructure.
+ * Key material stays inside Dynamic's embedded-wallet infrastructure: the export flow is
+ * Dynamic's own embedded-wallet reveal (initExportProcess), which renders the key only inside
+ * Dynamic's isolated secure iframe. This bundle never receives the revealed value, never logs
+ * it, and never sends it anywhere — the reveal promise is deliberately discarded.
  */
 import { createElement as h, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -21,6 +27,7 @@ import {
   getAuthToken,
   useDynamicContext,
   useDynamicWaas,
+  useEmbeddedReveal,
   useIsLoggedIn
 } from '@dynamic-labs/sdk-react-core';
 import { DynamicWaasEVMConnectors } from '@dynamic-labs/waas-evm';
@@ -41,9 +48,10 @@ function requireApi() {
 
 // Lives inside DynamicContextProvider so it can use the SDK hooks. It renders nothing.
 function DynamicBridge({ onChange }) {
-  const { setShowAuthFlow, sdkHasLoaded, handleLogOut } = useDynamicContext();
+  const { setShowAuthFlow, sdkHasLoaded, handleLogOut, primaryWallet } = useDynamicContext();
   const isLoggedIn = useIsLoggedIn();
   const { createWalletAccount } = useDynamicWaas();
+  const { initExportProcess } = useEmbeddedReveal();
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -57,12 +65,24 @@ function DynamicBridge({ onChange }) {
         undefined,
         { skipCloseAuthFlow: true }
       ),
-      signOut: () => handleLogOut()
+      signOut: () => handleLogOut(),
+      // Owner-only key export, delegated entirely to Dynamic's embedded-wallet reveal flow.
+      // recoveryPhrase=false asks for the private key, isPromptForExport=true shows Dynamic's
+      // own confirmation first. The key is rendered only inside Dynamic's isolated secure
+      // iframe; the resolved value is discarded so Handoff code never receives it.
+      exportWalletKey: () => initExportProcess(false, true).then(() => undefined),
+      // Clears Dynamic's export frame/handler when the Handoff modal closes. It only clears;
+      // it never reads anything from the frame.
+      clearExportFrame: () => {
+        try {
+          primaryWallet?.connector?.getExportHandler?.()?.clear?.();
+        } catch { /* nothing to clear */ }
+      }
     };
     const waiters = apiWaiters;
     apiWaiters = [];
     waiters.forEach(callback => callback(api));
-  }, [createWalletAccount, handleLogOut, setShowAuthFlow]);
+  }, [createWalletAccount, handleLogOut, setShowAuthFlow, initExportProcess, primaryWallet]);
 
   useEffect(() => {
     if (!sdkHasLoaded) return;
@@ -100,5 +120,7 @@ window.HandoffDynamic = {
   openAuth: () => requireApi().openAuth(),
   getToken: () => (api ? api.getToken() : null),
   retryWalletSetup: () => requireApi().retryWalletSetup(),
-  signOut: () => (api ? api.signOut() : undefined)
+  signOut: () => (api ? api.signOut() : undefined),
+  exportWalletKey: () => requireApi().exportWalletKey(),
+  clearExportFrame: () => (api ? api.clearExportFrame() : undefined)
 };
