@@ -71,18 +71,24 @@ async function authorizeWalletExport({ isStepUpRequired, promptStepUpAuth, promp
 //         initExportProcess, revealLegacyWalletKey }
 // Resolves to { mode: 'waas' | 'legacy' } and never the revealed key.
 async function runWalletExport(deps) {
+  const { primaryWallet, initExportProcess } = deps;
+  // Fail closed before prompting for authorization: every reveal must target the already-active
+  // primary wallet explicitly. Handoff never falls back to creating, replacing, or selecting one.
+  if (!primaryWallet?.id) throw new Error('No primary wallet is available for secure export.');
+
   await authorizeWalletExport(deps);
-  if (isLegacyWallet(deps.user, deps.primaryWallet)) {
+  if (isLegacyWallet(deps.user, primaryWallet)) {
     await deps.revealLegacyWalletKey({
       type: 'privateKey',
-      wallet: deps.primaryWallet,
+      wallet: primaryWallet,
       htmlContainerId: LEGACY_EXPORT_FRAME_ID
     });
     return { mode: 'legacy' };
   }
-  // recoveryPhrase=false asks for the private key. isPromptForExport=true keeps Dynamic's own
-  // confirmation. The resolved wallet from Dynamic is discarded.
-  await deps.initExportProcess(false, true);
+  // recoveryPhrase=false asks for the private key. isPromptForExport=false avoids a duplicate
+  // confirmation after Handoff's explicit dialog and authorization. The existing primary wallet ID
+  // is always passed, and Dynamic's resolved wallet is discarded.
+  await initExportProcess(false, false, primaryWallet.id);
   return { mode: 'waas' };
 }
 

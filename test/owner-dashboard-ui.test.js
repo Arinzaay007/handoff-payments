@@ -37,7 +37,7 @@ const SETTLED_ITEM = {
 
 function fakeDynamic() {
   const dyn = {
-    calls: { openAuth: 0, retry: 0, signOut: 0, exportWalletKey: 0, clearExportFrame: 0 },
+    calls: { openAuth: 0, retry: 0, signOut: 0, openWalletSettings: 0, exportWalletKey: 0, clearExportFrame: 0 },
     onChange: null,
     token: 'test-access-token',
     exportError: null,
@@ -47,6 +47,7 @@ function fakeDynamic() {
     getToken: () => dyn.token,
     retryWalletSetup: async () => { dyn.calls.retry += 1; },
     signOut: async () => { dyn.calls.signOut += 1; dyn.token = null; },
+    openWalletSettings: () => { dyn.calls.openWalletSettings += 1; },
     // These stand in for Dynamic's embedded-wallet reveal flow. The real bundle delegates to
     // useEmbeddedReveal().initExportProcess, which renders the key only in Dynamic's iframe.
     exportWalletKey: async () => {
@@ -194,6 +195,52 @@ test('the public /@username page never loads the owner portfolio', async () => {
   await waitFor(() => doc.querySelector('#publicName').textContent === 'Morgan Ellis', 'public profile');
   assert.equal(requests.some(request => request.url.includes('/api/me')), false, 'no owner endpoints on the public page');
   assert.equal(doc.querySelector('#balanceAmount').textContent.trim(), '—');
+});
+
+test('secure Dynamic wallet settings require a signed-in Handoff owner', async () => {
+  const { doc, dyn } = await loadApp();
+  doc.querySelector('#openWalletSettings').click();
+  await settle();
+
+  assert.equal(doc.querySelector('#authModal').classList.contains('visible'), true, 'signed-out visitors get sign-in');
+  assert.equal(dyn.calls.openWalletSettings, 0);
+});
+
+test('Identity delegates wallet settings to Dynamic without changing Morgan\'s wallet', async () => {
+  const { doc, dyn, requests } = await signInWithPortfolio({
+    balance: { status: 'available', amount: '1234.56' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z'
+  });
+  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'signed in');
+  const requestCount = requests.length;
+  const addressBefore = doc.querySelector('#walletAddress').textContent;
+
+  assert.equal(doc.querySelector('#openWalletSettings').textContent, 'Open secure Dynamic wallet settings');
+  doc.querySelector('#openWalletSettings').click();
+  await settle();
+
+  assert.equal(dyn.calls.openWalletSettings, 1);
+  assert.equal(dyn.calls.retry, 0, 'opening settings never asks Dynamic to create a wallet');
+  assert.equal(dyn.calls.exportWalletKey, 0, 'opening settings never starts a key reveal');
+  assert.equal(requests.length, requestCount, 'opening settings sends nothing to Handoff');
+  assert.equal(doc.querySelector('#walletAddress').textContent, addressBefore);
+  assert.equal(addressBefore, '0x7777…7777');
+});
+
+test('unavailable Dynamic wallet settings fail with friendly copy and leave Morgan\'s wallet unchanged', async () => {
+  const { doc, dyn } = await signInWithPortfolio({
+    balance: { status: 'available', amount: '1234.56' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z'
+  });
+  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'signed in');
+  delete dyn.openWalletSettings;
+  const addressBefore = doc.querySelector('#walletAddress').textContent;
+
+  doc.querySelector('#openWalletSettings').click();
+  await waitFor(() => doc.querySelector('#toast').textContent.length > 0, 'friendly settings failure');
+
+  assert.equal(doc.querySelector('#toast').textContent, 'Secure wallet settings are still loading. Try again in a moment.');
+  assert.equal(doc.querySelector('#walletAddress').textContent, addressBefore);
+  assert.equal(dyn.calls.retry, 0);
+  assert.equal(dyn.calls.exportWalletKey, 0);
 });
 
 test('Export wallet key opens only for the signed-in owner', async () => {

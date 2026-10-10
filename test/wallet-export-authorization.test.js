@@ -43,8 +43,8 @@ function fakeSdk({ user = WAAS_USER, wallet = WAAS_WALLET, stepUp = [false], mfa
       if (promptMfaResult) return promptMfaResult();
       return 'token';
     },
-    initExportProcess: async (recoveryPhrase, isPromptForExport) => {
-      calls.push(`waasReveal:${recoveryPhrase}:${isPromptForExport}`);
+    initExportProcess: async (recoveryPhrase, isPromptForExport, walletId) => {
+      calls.push(`waasReveal:${recoveryPhrase}:${isPromptForExport}:${walletId}`);
       return { id: 'discarded-by-handoff' };
     },
     revealLegacyWalletKey: async (params) => {
@@ -65,7 +65,7 @@ test('a wallet:export step-up is requested before the WaaS reveal, and the revea
     `stepUpCheck:${WALLET_EXPORT_SCOPE}`,
     `promptStepUp:${JSON.stringify([WALLET_EXPORT_SCOPE])}`,
     `stepUpCheck:${WALLET_EXPORT_SCOPE}`,
-    'waasReveal:false:true'
+    'waasReveal:false:false:wallet-waas'
   ]);
 });
 
@@ -77,7 +77,7 @@ test('when no step-up is required, the wallet export MFA action is checked befor
     `mfaCheck:${WALLET_WAAS_EXPORT_MFA_ACTION}`,
     `promptMfa:${JSON.stringify({ createMfaToken: true })}`,
     `mfaCheck:${WALLET_WAAS_EXPORT_MFA_ACTION}`,
-    'waasReveal:false:true'
+    'waasReveal:false:false:wallet-waas'
   ]);
 });
 
@@ -85,7 +85,34 @@ test('no prompt is shown when Dynamic requires neither step-up nor MFA', async (
   const { deps, calls } = fakeSdk();
   assert.deepEqual(await runWalletExport(deps), { mode: 'waas' });
   assert.equal(calls.some(call => call.startsWith('promptStepUp') || call.startsWith('promptMfa')), false);
-  assert.equal(calls.at(-1), 'waasReveal:false:true');
+  assert.equal(calls.at(-1), 'waasReveal:false:false:wallet-waas');
+});
+
+test('the WaaS reveal receives exactly false, false, and the existing primary wallet ID', async () => {
+  const { deps, calls } = fakeSdk();
+  await runWalletExport(deps);
+  assert.equal(calls.at(-1), `waasReveal:false:false:${WAAS_WALLET.id}`);
+});
+
+test('export fails closed without a primary wallet and never prompts or reveals', async () => {
+  const { deps, calls } = fakeSdk({ wallet: null });
+  await assert.rejects(runWalletExport(deps), /No primary wallet is available for secure export/);
+  assert.deepEqual(calls, []);
+});
+
+test('a WaaS wallet without an ID cannot be authorized or revealed', async () => {
+  const { deps, calls } = fakeSdk({ wallet: { address: WAAS_WALLET.address, connector: { key: 'dynamicwaas' } } });
+  await assert.rejects(runWalletExport(deps), /No primary wallet is available for secure export/);
+  assert.deepEqual(calls, []);
+});
+
+test('a legacy wallet cannot bypass the primary wallet ID requirement', async () => {
+  const { deps, calls } = fakeSdk({
+    user: V1_USER,
+    wallet: { address: LEGACY_WALLET.address, connector: { key: 'turnkeyevm' } }
+  });
+  await assert.rejects(runWalletExport(deps), /No primary wallet is available for secure export/);
+  assert.deepEqual(calls, []);
 });
 
 test('a refused step-up rejects with the denial message and never starts a reveal', async () => {
