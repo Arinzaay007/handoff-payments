@@ -66,8 +66,8 @@
       <section class="page" id="get-paidPage">
         <div class="wide-intro"><span class="label">GET PAID</span><h2>Create a payment request</h2><p>A payer can send from any live-supported network. You always receive USDC directly to your Monad wallet.</p></div>
         <div class="request-workbench">
-          <div class="request-form-card"><div class="segmented"><button class="active" data-request-type="fixed">Fixed amount</button><button data-request-type="open">Any amount</button></div><label id="requestAmountLabel">Amount to receive <div class="amount-input"><span>$</span><input id="requestAmount" inputmode="decimal" value="25.00" /><span>USDC</span></div></label><label>What is this for?<input id="requestNote" maxlength="80" value="Payment request" placeholder="e.g. September design work" /></label><label>Expires<select id="requestExpiry"><option>In 24 hours</option><option>In 7 days</option><option>Never</option></select></label><button class="button button-dark full" id="generateRequest">Generate payment link <span>↗</span></button></div>
-          <div class="request-preview"><div class="preview-top"><span class="tiny-lock">⌁ Profile-bound payment request</span><button id="previewEdit" class="icon-button small">✎</button></div><div class="preview-person"><span id="previewAvatar" class="avatar gradient-avatar">H</span><div><strong id="previewName">Sign in to Handoff</strong><span id="previewHandle">Claim a Handoff username</span></div></div><div class="request-preview-amount" id="previewAmount">$25.00 <small>USDC</small></div><p id="previewNote">Payment request</p><div class="preview-line"></div><div class="preview-receive"><span>You receive</span><strong>USDC on Monad</strong></div><button class="button button-light full" id="sharePreview">Share payment link <span>↗</span></button></div>
+          <div class="request-form-card"><div class="segmented"><button class="active" data-request-type="fixed">Fixed amount</button><button data-request-type="open">Any amount</button></div><label id="requestAmountLabel">Amount to receive <div class="amount-input"><span>$</span><input id="requestAmount" inputmode="decimal" value="25.00" /><span>USDC</span></div></label><label>What is this for?<input id="requestNote" maxlength="80" value="Payment request" placeholder="e.g. September design work" /></label><label>Expires<select id="requestExpiry"><option>In 24 hours</option><option>In 7 days</option><option>Never</option></select></label><button class="button button-dark full" id="generateRequest" disabled>Payment links coming soon</button><p class="input-caption">Shareable request links are not enabled yet. Your public payment page is available below.</p></div>
+          <div class="request-preview"><div class="preview-top"><span class="tiny-lock">⌁ Profile-bound payment request</span><button id="previewEdit" class="icon-button small">✎</button></div><div class="preview-person"><span id="previewAvatar" class="avatar gradient-avatar">H</span><div><strong id="previewName">Sign in to Handoff</strong><span id="previewHandle">Claim a Handoff username</span></div></div><div class="request-preview-amount" id="previewAmount">$25.00 <small>USDC</small></div><p id="previewNote">Payment request</p><div class="preview-line"></div><div class="preview-receive"><span>You receive</span><strong>USDC on Monad</strong></div><button class="button button-light full" id="sharePreview" disabled>Share link coming soon</button></div>
         </div>
       </section>
 
@@ -80,6 +80,18 @@
     </main>
   </div>
 
+  <section class="public-page" id="publicPage" aria-labelledby="publicName">
+    <article class="panel public-card">
+      <span class="label">PAYMENT PAGE</span>
+      <div id="publicAvatar" class="profile-avatar gradient-avatar" aria-hidden="true">H</div>
+      <h1 id="publicName">Handoff payment page</h1>
+      <p id="publicHandle" class="public-handle">@</p>
+      <p class="public-copy">Pay in USDC from a supported network. Funds settle directly to this recipient’s Monad wallet. Handoff never holds funds.</p>
+      <button id="publicPayButton" class="button button-dark full">Pay with USDC <span>→</span></button>
+      <p class="modal-note">Routes are checked live before you sign anything.</p>
+    </article>
+  </section>
+
   <div class="modal-backdrop" id="modalBackdrop" aria-hidden="true"></div>
   <section class="modal" id="payModal" role="dialog" aria-modal="true" aria-labelledby="payModalTitle">
     <button class="modal-close" data-close="payModal" aria-label="Close">×</button>
@@ -88,7 +100,6 @@
     <div class="modal-step" data-step="quote"><button class="back-button" id="backToNetworks">← Back</button><span class="label">PAYMENT ROUTE</span><h2>Review before you pay</h2><div class="quote-card"><div><span>You send</span><b id="quoteSend">25.00 USDC</b><small id="quoteSource">on Base</small></div><div class="quote-arrow">↓</div><div class="quote-recipient"><span id="quoteRecipientName">Recipient receives</span><b id="quoteReceive">— USDC</b><small>on Monad</small></div></div><div class="quote-details"><div><span>Route</span><b id="quoteRoute">Relay · live quote</b></div><div><span>Recipient</span><b id="quoteRecipientWallet">—</b></div><div><span>Payment ID</span><b id="paymentId">—</b></div></div><div class="quote-state" id="quoteState">Verify a registered recipient, then connect a supported wallet for a quote.</div><button class="button button-dark full" id="getQuote">Connect wallet &amp; get live quote <span>↗</span></button><p class="quote-footnote">Execution adapters are required for Solana and TON. This preview never broadcasts a mainnet transaction.</p></div>
   </section>
 
-  <section class="modal compact-modal" id="requestModal" role="dialog" aria-modal="true" aria-labelledby="requestModalTitle"><button class="modal-close" data-close="requestModal" aria-label="Close">×</button><div class="success-ring">↗</div><span class="label">PAYMENT REQUEST PREVIEW</span><h2 id="requestModalTitle">Ready to share after activation.</h2><p id="requestModalDescription">Handoff will bind this request to your registered recipient wallet before it can be shared.</p><div class="link-card"><code id="generatedLink">Complete your profile to create a link</code><button class="copy-small" id="copyGeneratedLink">Copy</button></div><div class="qr-placeholder" aria-label="Decorative QR-style pattern"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><button class="button button-dark full" id="shareGeneratedLink">Copy payment link <span>↗</span></button></section>
 
   <section class="modal" id="authModal" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
     <button class="modal-close" data-close="authModal" aria-label="Close">×</button>

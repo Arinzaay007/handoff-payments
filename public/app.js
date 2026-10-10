@@ -43,6 +43,10 @@ const isEvmAddress = value => /^0x[0-9a-fA-F]{40}$/.test(String(value || ''));
 const shortAddress = value => value && isEvmAddress(value) ? `${value.slice(0, 6)}…${value.slice(-4)}` : '—';
 const initial = value => String(value || 'H').trim().charAt(0).toUpperCase() || 'H';
 
+// Canonical public payment page for a username, derived from the origin the page was served from.
+function canonicalPaymentUrl(username) {
+  return new URL(`/@${username}`, window.location.origin).toString();
+}
 function makeId() {
   return `HF-${Math.random().toString(36).slice(2, 6).toUpperCase()}-${Math.random().toString(36).slice(2, 4).toUpperCase()}`;
 }
@@ -92,7 +96,7 @@ function renderIdentity() {
   const profile = state.auth.profile;
   const handle = profile ? `@${profile.username}` : 'Sign in to claim your @username';
   const name = profile?.displayName || 'Sign in to Handoff';
-  const link = profile ? `handoff.xyz/${profile.username}` : 'A verified Handoff username resolves to Monad USDC.';
+  const link = profile ? canonicalPaymentUrl(profile.username).replace(/^https?:\/\//, '') : 'A verified Handoff username resolves to Monad USDC.';
   const avatar = initial(profile?.displayName || profile?.username);
 
   $('#identityHandle').textContent = handle;
@@ -305,17 +309,6 @@ function updateRequestPreview() {
   $('#requestAmountLabel').style.opacity = state.requestType === 'fixed' ? '1' : '.45';
   $('#requestAmount').disabled = state.requestType !== 'fixed';
 }
-function createRequestPreview() {
-  if (!state.auth.profile) {
-    toast('Sign in and claim a Handoff username before creating a request.');
-    openAuthFlow();
-    return;
-  }
-  $('#generatedLink').textContent = `Profile @${state.auth.profile.username} is verified. Persisted payment links are the next server step.`;
-  $('#requestModalDescription').textContent = 'Handoff will only issue public links after the request is signed and stored against your active Monad recipient wallet.';
-  openModal('requestModal');
-}
-
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     if (window.HandoffDynamic) return resolve();
@@ -506,6 +499,32 @@ async function handleAuthChange({ signedIn }) {
   }
 }
 
+// /@username: a payer-facing page for one recipient. The recipient is the server-injected handle;
+// the payment flow below resolves that handle's wallet on the server, exactly as before.
+function openPublicPay() {
+  const handle = document.body.dataset.publicHandle;
+  openPay();
+  $('#payRecipient').value = `@${handle}`;
+}
+
+async function initPublicPage(handle) {
+  document.body.classList.add('public-mode');
+  $('#publicHandle').textContent = `@${handle}`;
+  $('#publicAvatar').textContent = initial(handle);
+  $('#publicPayButton').addEventListener('click', openPublicPay);
+  try {
+    const response = await fetch(`/api/public/profile?handle=${encodeURIComponent(handle)}`);
+    if (!response.ok) return;
+    const profile = await response.json();
+    if (profile.displayName) {
+      $('#publicName').textContent = profile.displayName;
+      $('#publicAvatar').textContent = initial(profile.displayName);
+    }
+  } catch {
+    // The handle and the Pay button still work with the server-verified handle alone.
+  }
+}
+
 function openAuthFlow() {
   if (state.auth.profile) return goTo('identity');
   if (state.auth.signedIn) return resumeOnboarding();
@@ -600,9 +619,9 @@ function bindEvents() {
   $('#routeRefresh').addEventListener('click', () => refreshRoutes());
   $('#toggleBalance').addEventListener('click', () => { state.balanceVisible = !state.balanceVisible; renderIdentity(); });
   $('#copyHandle').addEventListener('click', () => state.auth.profile ? copyText(`@${state.auth.profile.username}`, 'Handoff username copied') : openAuthFlow());
-  $('#copyPublicLink').addEventListener('click', () => state.auth.profile ? copyText(`https://handoff.xyz/${state.auth.profile.username}`, 'Payment page copied') : openAuthFlow());
+  $('#copyPublicLink').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
   $('#copyWallet').addEventListener('click', () => state.auth.profile ? copyText(state.auth.profile.wallet, 'Monad recipient wallet copied') : openAuthFlow());
-  $('#shareProfile').addEventListener('click', () => state.auth.profile ? copyText(`https://handoff.xyz/${state.auth.profile.username}`, 'Payment page copied') : openAuthFlow());
+  $('#shareProfile').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
   $('#profileButton').addEventListener('click', () => state.auth.profile ? goTo('identity') : openAuthFlow());
   $('#authButton').addEventListener('click', () => state.auth.signedIn ? signOut() : openAuthFlow());
   $('#openSecurity').addEventListener('click', () => toast('Handoff is non-custodial: Relay routes directly to a verified Monad recipient wallet.'));
@@ -625,11 +644,7 @@ function bindEvents() {
   }));
   $('#requestAmount').addEventListener('input', updateRequestPreview);
   $('#requestNote').addEventListener('input', updateRequestPreview);
-  $('#generateRequest').addEventListener('click', createRequestPreview);
-  $('#sharePreview').addEventListener('click', createRequestPreview);
   $('#previewEdit').addEventListener('click', () => $('#requestAmount').focus());
-  $('#copyGeneratedLink').addEventListener('click', () => toast('Persisted payment links are not enabled yet.'));
-  $('#shareGeneratedLink').addEventListener('click', () => toast('Persisted payment links are not enabled yet.'));
   $$('.filter').forEach(button => button.addEventListener('click', () => {
     $$('.filter').forEach(item => item.classList.toggle('active', item === button));
     toast('Activity filters apply once confirmed payments are stored.');
@@ -640,6 +655,16 @@ function bindEvents() {
 }
 
 function init() {
+  const publicHandle = document.body?.dataset.publicHandle;
+  if (publicHandle) {
+    renderRecipientProof();
+    renderRails();
+    renderNetworkPicker();
+    refreshRoutes(true);
+    bindEvents();
+    initPublicPage(publicHandle);
+    return;
+  }
   renderActivity();
   renderIdentity();
   renderRecipientProof();

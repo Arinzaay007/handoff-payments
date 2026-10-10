@@ -75,6 +75,8 @@ Run these files, in order, in the Supabase SQL Editor:
 - `GET /api/me/wallet-status` returns only `{ ready: boolean }` for the verified Dynamic session. It never returns an address.
 - `POST /api/me/claim` accepts only `{ "username" }`. It requires a verified Dynamic token with exactly one embedded EVM wallet credential, and the second Supabase migration. Any other field, including `walletAddress`, is rejected with 400.
 - `GET /api/public/resolve?handle=ada` resolves only a registered Handoff username to its single active Monad recipient wallet.
+- `GET /@ada` serves the public payment page for a registered username. The page URL is derived from the request origin, so the same build works on any host. Unknown or unfunded handles get a not-found page with `noindex`.
+- `GET /api/public/profile?handle=ada` returns only `username`, `displayName`, and `settlement`. It never returns a wallet address, a Dynamic subject, or an email.
 
 ## Never expose
 
