@@ -5,6 +5,10 @@ const state = {
   routeStatus: null,
   payment: { quote: null, payer: null, paymentId: null, receipt: null, pendingHash: null, busy: false, flow: 0 },
   recipient: null,
+  // Signed-in owner portfolio from /api/me/portfolio: the verified on-chain Monad USDC balance
+  // and verified recipient receipt activity. Balance status: idle | syncing | available | unavailable.
+  // "unavailable" is never shown as a zero balance.
+  portfolio: { balance: { status: 'idle', amount: null }, activity: [], loaded: false },
   auth: {
     ready: false,
     // True while Dynamic holds a signed-in session for this browser.
@@ -89,8 +93,13 @@ function openModal(id) {
   modal.setAttribute('aria-hidden', 'false');
 }
 function closeModals() {
+  // If the key-export dialog was open, clear Dynamic's export frame as the modal closes.
+  const exportWasOpen = $('#exportKeyModal').classList.contains('visible');
   $('#modalBackdrop').classList.remove('visible');
   $$('.modal.visible').forEach(modal => { modal.classList.remove('visible'); modal.setAttribute('aria-hidden', 'true'); });
+  if (exportWasOpen) {
+    try { window.HandoffDynamic?.clearExportFrame?.(); } catch { /* nothing to clear */ }
+  }
 }
 function goTo(page) {
   $$('.page').forEach(el => el.classList.remove('active'));
@@ -105,13 +114,81 @@ function goTo(page) {
   $('#pageEyebrow').textContent = labels[page][0];
   $('#pageTitle').textContent = labels[page][1];
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (page === 'overview' || page === 'activity') refreshPortfolio();
 }
 
 function renderActivity() {
   const blank = `<div class="activity-item"><div class="activity-icon in">⌁</div><div class="activity-main"><b>No confirmed payments yet</b><span>New activity appears here after source confirmation and Monad settlement.</span></div></div>`;
-  $('#activityList').innerHTML = blank;
-  $('#activityFullList').innerHTML = blank;
+  const syncing = `<div class="activity-item"><div class="activity-icon in">⌁</div><div class="activity-main"><b>Syncing activity…</b><span>Verified recipient receipts are loading.</span></div></div>`;
+  const markup = state.portfolio.activity.length
+    ? state.portfolio.activity.map(activityItemMarkup).join('')
+    : (state.auth.profile && !state.portfolio.loaded ? syncing : blank);
+  $('#activityList').innerHTML = markup;
+  $('#activityFullList').innerHTML = markup;
 }
+
+// Verified recipient receipt activity, exactly as /api/me/portfolio reports it. Never a payer
+// address and never a wallet: only the receipt states, amounts, and source/destination hashes.
+function activityItemMarkup(item) {
+  const amountText = item.receive?.amount ? `+${item.receive.amount} USDC` : `${item.send.amount} USDC`;
+  const detail = `${item.sourceNetwork ? item.sourceNetwork.name : 'Source'} → Monad`;
+  const progress = item.settlementVerified ? 'Verified' : item.final ? 'Final' : 'In progress';
+  return `<div class="activity-item"><div class="activity-icon in">↙</div><div class="activity-main"><b>${item.label}</b><span>${detail}</span></div><div class="activity-right"><b>${amountText}</b><span>${progress}</span></div></div>`;
+}
+
+// The verified Monad USDC balance from the server's on-chain read. When the chain cannot be read
+// the dashboard says "syncing/unavailable" — it never shows a fake zero balance.
+function renderBalance() {
+  const profile = state.auth.profile;
+  const balance = state.portfolio.balance;
+  const amount = $('#balanceAmount');
+  const sub = $('#balanceSub');
+  if (!profile) {
+    amount.innerHTML = state.balanceVisible ? '—' : '•••';
+    sub.innerHTML = '<span class="stable-dot">$</span> Sign in to view confirmed USDC <span class="balance-network">on Monad</span>';
+    return;
+  }
+  if (!state.balanceVisible) {
+    amount.innerHTML = '•••';
+    sub.innerHTML = '<span class="stable-dot">$</span> Balance hidden <span class="balance-network">on Monad</span>';
+    return;
+  }
+  if (balance.status === 'available') {
+    amount.innerHTML = `${balance.amount} <span>USDC</span>`;
+    sub.innerHTML = '<span class="stable-dot">$</span> Verified on-chain balance <span class="balance-network">on Monad</span>';
+    return;
+  }
+  amount.innerHTML = '—';
+  sub.innerHTML = balance.status === 'unavailable'
+    ? '<span class="stable-dot">$</span> Balance syncing/unavailable — not a zero balance <span class="balance-network">on Monad</span>'
+    : '<span class="stable-dot">$</span> Syncing verified balance <span class="balance-network">on Monad</span>';
+}
+
+// Loads the signed-in owner's portfolio. Failures keep the last honest state: an unreadable RPC
+// is "syncing/unavailable", never a fabricated zero.
+async function refreshPortfolio() {
+  if (!state.auth.profile) return;
+  if (!state.portfolio.loaded) {
+    state.portfolio.balance = { status: 'syncing', amount: null };
+    renderBalance();
+    renderActivity();
+  }
+  try {
+    const data = await apiFetch('/api/me/portfolio');
+    state.portfolio.balance = data.balance || { status: 'unavailable', amount: null };
+    state.portfolio.activity = Array.isArray(data.activity) ? data.activity : [];
+    state.portfolio.loaded = true;
+    renderBalance();
+    renderActivity();
+  } catch (error) {
+    if (error.status === 401) return expireSession();
+    state.portfolio.balance = { status: 'unavailable', amount: null };
+    state.portfolio.loaded = true;
+    renderBalance();
+    renderActivity();
+  }
+}
+
 function renderIdentity() {
   const profile = state.auth.profile;
   const handle = profile ? `@${profile.username}` : 'Sign in to claim your @username';
@@ -133,10 +210,7 @@ function renderIdentity() {
   $('#profileMiniName').textContent = profile ? name : 'Sign in to Handoff';
   $('#profileMiniHandle').textContent = profile ? handle : 'Claim your payment handle';
   $('#authButton').innerHTML = state.auth.signedIn ? 'Sign out <span>↗</span>' : 'Sign in <span>↗</span>';
-  $('#balanceAmount').innerHTML = state.balanceVisible && profile ? '—' : '•••';
-  $('#balanceSub').innerHTML = profile
-    ? '<span class="stable-dot">$</span> Confirmed balance will appear after activity sync <span class="balance-network">on Monad</span>'
-    : '<span class="stable-dot">$</span> Sign in to view confirmed USDC <span class="balance-network">on Monad</span>';
+  renderBalance();
 
   $('#aliasList').innerHTML = profile
     ? `<div class="alias-entry"><div class="alias-platform">@</div><div class="alias-data"><b>Handoff username</b><span>@${profile.username}</span></div><div class="alias-status">✓ Active</div></div>`
@@ -664,7 +738,9 @@ function resetLocalSession() {
   state.auth.signedIn = false;
   state.auth.awaitingSignIn = false;
   state.auth.profile = null;
+  state.portfolio = { balance: { status: 'idle', amount: null }, activity: [], loaded: false };
   renderIdentity();
+  renderActivity();
 }
 
 async function expireSession() {
@@ -726,6 +802,7 @@ async function resumeOnboarding() {
       state.auth.awaitingSignIn = false;
       closeModals();
       toast(`Signed in as @${state.auth.profile.username}.`);
+      refreshPortfolio();
       return;
     }
   } catch (error) {
@@ -784,6 +861,7 @@ async function handleAuthChange({ signedIn }) {
     const data = await apiFetch('/api/me');
     state.auth.profile = data.profile || null;
     renderIdentity();
+    if (state.auth.profile) refreshPortfolio();
   } catch (error) {
     if (error.status === 401) await expireSession();
   }
@@ -858,6 +936,7 @@ async function claimUsername() {
     renderIdentity();
     closeModals();
     toast(`@${data.profile.username} is ready to receive USDC on Monad.`);
+    refreshPortfolio();
   } catch (error) {
     if (error.status === 401) return expireSession();
     if (WALLET_PENDING_CODES.has(error.code)) {
@@ -881,6 +960,33 @@ async function signOut() {
   toast('Signed out of Handoff.');
 }
 
+// Identity → Export wallet key. Owner-only: the button is inert without a signed-in profile, and
+// the export itself is Dynamic's embedded-wallet reveal, rendered only inside Dynamic's isolated
+// secure iframe. Handoff code, the server, and this dialog never receive the exported key.
+function openExportKey() {
+  if (!state.auth.profile) return openAuthFlow();
+  $('#exportKeyStatus').textContent = 'The secure window belongs to Dynamic. Closing this dialog clears it.';
+  openModal('exportKeyModal');
+}
+
+async function continueExportKey() {
+  if (!window.HandoffDynamic?.exportWalletKey) {
+    return toast('Secure key export is still loading. Try again in a moment.');
+  }
+  const button = $('#continueExportKey');
+  button.disabled = true;
+  button.textContent = 'Opening secure window…';
+  try {
+    await window.HandoffDynamic.exportWalletKey();
+    closeModals();
+  } catch {
+    toast('Key export could not be opened. Try again in a moment.');
+  } finally {
+    button.disabled = false;
+    button.innerHTML = 'Continue in secure window <span>→</span>';
+  }
+}
+
 function bindEvents() {
   $$('.nav-item').forEach(item => item.addEventListener('click', () => goTo(item.dataset.page)));
   $$('[data-go]').forEach(item => item.addEventListener('click', () => goTo(item.dataset.go)));
@@ -895,6 +1001,8 @@ function bindEvents() {
   $('#copyPublicLink').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
   $('#copyWallet').addEventListener('click', () => state.auth.profile ? copyText(state.auth.profile.wallet, 'Monad recipient wallet copied') : openAuthFlow());
   $('#shareProfile').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
+  $('#exportWalletKey').addEventListener('click', openExportKey);
+  $('#continueExportKey').addEventListener('click', continueExportKey);
   $('#profileButton').addEventListener('click', () => state.auth.profile ? goTo('identity') : openAuthFlow());
   $('#authButton').addEventListener('click', () => state.auth.signedIn ? signOut() : openAuthFlow());
   $('#openSecurity').addEventListener('click', () => toast('Handoff is non-custodial: Relay routes directly to a verified Monad recipient wallet.'));

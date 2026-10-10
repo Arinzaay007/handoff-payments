@@ -65,4 +65,4 @@ async function verifyMonadSettlement({ txHash, recipient, minimumMinor, monadUsd
   return { verified: true, reason: 'VERIFIED', receivedMinor: received.toString() };
 }
 
-module.exports = { verifyMonadSettlement, TRANSFER_TOPIC };
+module.exports = { verifyMonadSettlement, TRANSFER_TOPIC, rpcCall };
