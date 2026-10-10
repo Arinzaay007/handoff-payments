@@ -1,0 +1,44 @@
+# Render Blueprint for Handoff (https://github.com/Arinzaay007/handoff-payments)
+#
+# This file contains NO secrets and NO environment values on purpose.
+# Every variable below is declared with `sync: false`, so Render asks for each
+# value in its dashboard when the Blueprint is created. Paste secrets only into
+# Render's encrypted Variables panel — never into this file, a chat, or Git.
+#
+# Create it with: Render dashboard -> New -> Blueprint -> select this repository.
+#
+# Free-plan notes:
+#   * Build:  npm ci && npm run build   (regenerates public/dynamic-client.js)
+#   * Start:  npm start                 (Node server binds 0.0.0.0:$PORT)
+#   * Health: GET /api/config           (readiness booleans + mainnet caps only)
+services:
+  - type: web
+    name: handoff-payments
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/config
+    envVars:
+      # Public by design. This is the only value the browser ever receives,
+      # served from GET /api/public-config.
+      - key: DYNAMIC_ENVIRONMENT_ID
+        sync: false
+
+      # Public Supabase project URL, e.g. https://<project-ref>.supabase.co.
+      # It is only half of the pair; the key below is the secret half.
+      - key: SUPABASE_URL
+        sync: false
+
+      # SERVER-ONLY SECRET. Rotate/revoke the previously exposed key first, then
+      # paste the new value into Render. Never commit it, never send it in chat.
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+
+      # Mainnet caps, in USDC six-decimal minor units (non-secret defaults).
+      # 25000000 = 25.00 USDC per payment, 100000000 = 100.00 USDC per day.
+      # The server also falls back to these same defaults if left unset.
+      - key: MAX_MAINNET_USDC_MINOR
+        sync: false
+      - key: MAX_DAILY_MAINNET_USDC_MINOR
+        sync: false

@@ -1,0 +1,81 @@
+# Handoff environment setup
+
+Handoff’s browser receives **only** the Dynamic Environment ID. Username resolution, username claims, and all Supabase writes stay on the server.
+
+## Required deployment variables
+
+```env
+# Public by design: identifies the Dynamic Live environment for the browser SDK.
+DYNAMIC_ENVIRONMENT_ID=
+
+# Server-only Supabase access. Use exactly one key name below.
+SUPABASE_URL=
+# Preferred on current Supabase projects.
+SUPABASE_SECRET_KEY=
+# Legacy projects only; the server accepts either, but prefer SUPABASE_SECRET_KEY.
+# SUPABASE_SERVICE_ROLE_KEY=
+
+# Conservative mainnet controls, in USDC six-decimal smallest units.
+MAX_MAINNET_USDC_MINOR=25000000
+MAX_DAILY_MAINNET_USDC_MINOR=100000000
+```
+
+`SUPABASE_SECRET_KEY` is the current Supabase name; `SUPABASE_SERVICE_ROLE_KEY`
+is supported for legacy projects. The server accepts either, but never exposes
+either one.
+
+## Render
+
+On Render these five variables are declared in [`render.yaml`](../render.yaml)
+with `sync: false`, so the dashboard prompts for each value. See
+[`docs/RENDER_DEPLOY.md`](RENDER_DEPLOY.md) for the full walkthrough.
+
+| Variable | Where it goes |
+| --- | --- |
+| `DYNAMIC_ENVIRONMENT_ID` | Render Variables (public by design) |
+| `SUPABASE_URL` | Render Variables (public) |
+| `SUPABASE_SECRET_KEY` | Render Variables — **server-only secret** |
+| `MAX_MAINNET_USDC_MINOR` | Render Variables (non-secret cap) |
+| `MAX_DAILY_MAINNET_USDC_MINOR` | Render Variables (non-secret cap) |
+
+Rotate the previously exposed Supabase key before you paste the replacement.
+Never paste a key into a chat, a commit, or a browser.
+
+
+## Local development
+
+1. Copy `.env.example` to `.env.local`.
+2. Add **only public values** when you need to test the browser sign-in flow locally.
+3. Put the Supabase secret/service key in your local uncommitted `.env.local` or hosting-provider environment settings. Never paste it in chat or commit it.
+4. Run `npm install`, `npm run build`, and `npm start`.
+
+The tiny local environment loader fills only unset values, so real host environment variables override `.env.local`. `.env.local` is ignored by Git.
+
+## Dynamic configuration
+
+- The Dynamic client is initialized with `DYNAMIC_ENVIRONMENT_ID` from `GET /api/public-config`.
+- Add every exact browser origin you will use to Dynamic **CORS origins**: `http://localhost:3000` for local development and the exact deployed HTTPS domain for production. Do not use a wildcard for a payment app.
+- Handoff verifies the Dynamic access-token signature against Dynamic’s public JWKS and requires the Live environment ID plus the `user:basic` scope before it accepts an authenticated request.
+- Handoff takes the Monad recipient only from an EVM wallet in the token’s verified Dynamic credentials. A browser cannot submit an arbitrary recipient wallet.
+
+## Supabase migration order
+
+Run these files, in order, in the Supabase SQL Editor:
+
+1. `supabase/migrations/0001_handoff_mainnet_schema.sql` — already applied for the first project setup.
+2. `supabase/migrations/0002_claim_handoff_profile.sql` — adds the atomic, server-only profile and wallet claim function.
+
+## Deployment checks
+
+- `GET /api/config` returns only readiness booleans and mainnet caps.
+- `GET /api/public-config` returns only the Dynamic Environment ID and mainnet caps.
+- `GET /api/me` requires a verified Dynamic access token.
+- `POST /api/me/claim` requires a verified Dynamic token, one of that token’s verified EVM wallets, and the second Supabase migration.
+- `GET /api/public/resolve?handle=ada` resolves only a registered Handoff username to its single active Monad recipient wallet.
+
+## Never expose
+
+- Dynamic API/bearer tokens (`dyn_...`)
+- Supabase secret keys (`sb_secret_...`) or legacy service-role keys
+- Database passwords
+- Wallet recovery phrases or private keys
