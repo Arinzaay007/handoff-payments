@@ -969,6 +969,8 @@ function openExportKey() {
   openModal('exportKeyModal');
 }
 
+const EXPORT_DENIED_MESSAGE = 'Secure export authorization was denied';
+
 async function continueExportKey() {
   if (!window.HandoffDynamic?.exportWalletKey) {
     return toast('Secure key export is still loading. Try again in a moment.');
@@ -977,10 +979,20 @@ async function continueExportKey() {
   button.disabled = true;
   button.textContent = 'Opening secure window…';
   try {
-    await window.HandoffDynamic.exportWalletKey();
-    closeModals();
-  } catch {
-    toast('Key export could not be opened. Try again in a moment.');
+    const result = await window.HandoffDynamic.exportWalletKey();
+    // A legacy (V1/V2) reveal stays visible in this dialog until the owner closes it.
+    if (result?.mode === 'legacy') {
+      $('#exportKeyStatus').textContent = 'Your key is shown inside the secure frame above. Closing this dialog clears it.';
+    } else {
+      closeModals();
+    }
+  } catch (error) {
+    if (error?.code === 'EXPORT_AUTHORIZATION_DENIED') {
+      $('#exportKeyStatus').textContent = EXPORT_DENIED_MESSAGE;
+      toast(EXPORT_DENIED_MESSAGE);
+    } else {
+      toast('Key export could not be opened. Try again in a moment.');
+    }
   } finally {
     button.disabled = false;
     button.innerHTML = 'Continue in secure window <span>→</span>';

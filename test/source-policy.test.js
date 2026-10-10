@@ -8,6 +8,7 @@ const ROOT = path.join(__dirname, '..');
 const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
 
 const bundleSource = read('src/dynamic-client.js');
+const exportSource = read('src/walletExport.js');
 const indexHtml = read('public/index.html');
 const appJs = read('public/app.js');
 const serverJs = read('server.js');
@@ -30,18 +31,52 @@ test('key export is delegated to Dynamic\'s secure reveal and the bundle never h
   // reveal flow (useEmbeddedReveal → initExportProcess), which renders the key only inside
   // Dynamic's isolated secure iframe. The bundle never imports, receives, persists, or forwards
   // key material itself: it drives the flow and discards the result.
+  const exportBundle = bundleSource + exportSource;
   assert.match(bundleSource, /useEmbeddedReveal/);
-  assert.match(bundleSource, /initExportProcess\(false, true\)/, 'private-key reveal via Dynamic\'s flow');
+  assert.match(exportSource, /initExportProcess\(false, true\)/, 'private-key reveal via Dynamic\'s flow');
   for (const forbidden of [
     'importPrivateKey', 'exportClientKeyshares', 'backupKeyShares',
     'mnemonic', 'seedPhrase', 'localStorage', 'sessionStorage', 'indexedDB', 'document.cookie'
   ]) {
-    assert.equal(bundleSource.includes(forbidden), false, `bundle must not reference ${forbidden}`);
+    assert.equal(exportBundle.includes(forbidden), false, `bundle must not reference ${forbidden}`);
   }
   // Nothing is sent to a server and nothing is logged: the reveal result is discarded.
-  assert.equal(/fetch\(/.test(bundleSource), false, 'the bundle never posts anything anywhere');
-  assert.equal(/console\.log/.test(bundleSource), false);
+  assert.equal(/fetch\(/.test(exportBundle), false, 'the bundle never posts anything anywhere');
+  assert.equal(/console\.log/.test(exportBundle), false);
   assert.equal(read('src/dynamicSettings.js').includes('privateKey'), false);
+});
+
+test('wallet export authorization (step-up, then MFA) always runs before the reveal', () => {
+  const authorize = exportSource.indexOf('await authorizeWalletExport(deps);');
+  const reveal = exportSource.indexOf('await deps.initExportProcess(false, true);');
+  const legacyReveal = exportSource.indexOf('await deps.revealLegacyWalletKey({');
+  assert.ok(authorize > 0, 'runWalletExport authorizes first');
+  assert.ok(reveal > authorize && legacyReveal > authorize, 'both reveals come after authorization');
+  assert.match(exportSource, /promptStepUpAuth\(\{ requestedScopes: \[WALLET_EXPORT_SCOPE\] \}\)/);
+  assert.match(exportSource, /WALLET_EXPORT_SCOPE = 'wallet:export'/);
+  assert.match(exportSource, /WALLET_WAAS_EXPORT_MFA_ACTION = 'wallet\.waas\.export'/);
+  assert.match(bundleSource, /exportWalletKey: \(\) => runWalletExport\(exportDepsRef\.current\)/);
+  assert.equal(/exportWalletKey[^\n]*=>\s*(initExportProcess|revealLegacyWalletKey|deps\.initExportProcess)/.test(bundleSource), false,
+    'exportWalletKey never skips straight to a reveal');
+});
+
+test('a refused authorization shows the exact denial copy in the dialog and toast', () => {
+  assert.match(exportSource, /EXPORT_DENIED_MESSAGE = 'Secure export authorization was denied'/);
+  assert.match(appJs, /const EXPORT_DENIED_MESSAGE = 'Secure export authorization was denied'/);
+  assert.match(appJs, /error\?\.code === 'EXPORT_AUTHORIZATION_DENIED'/);
+});
+
+test('legacy V1/V2 wallets use the official migration package without auto-upgrading or recreating a wallet', () => {
+  const pkg = JSON.parse(read('package.json'));
+  assert.ok(pkg.dependencies['@dynamic-labs/legacy-embedded-wallet-migration'], 'the official legacy package is a dependency');
+  assert.match(bundleSource, /LegacyWalletMigrationProvider, \{ autoOpen: false \}/);
+  assert.match(bundleSource, /useLegacyWalletExport/);
+  assert.match(exportSource, /isLegacyWallet/);
+  // A migration (upgradeToDynamicWaas) creates a new WaaS wallet. Nothing in Handoff may start one.
+  for (const [name, source] of [['bundle', bundleSource], ['export module', exportSource], ['app', appJs], ['index', indexHtml]]) {
+    assert.equal(/upgradeToDynamicWaas|startUpgrade|LegacyWalletMigrationModal|autoOpen: true/.test(source), false, `${name} must not start a wallet migration`);
+  }
+  assert.equal(/DYNAMIC_ENVIRONMENT_ID/.test(exportSource + bundleSource), false, 'the environment id stays in config, not the export code');
 });
 
 test('the bundle exposes only the documented hosted-auth and key-export surface', () => {

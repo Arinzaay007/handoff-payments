@@ -41,6 +41,7 @@ function fakeDynamic() {
     onChange: null,
     token: 'test-access-token',
     exportError: null,
+    exportResult: undefined,
     initialize: async ({ onChange }) => { dyn.onChange = onChange; },
     openAuth: () => { dyn.calls.openAuth += 1; },
     getToken: () => dyn.token,
@@ -51,6 +52,7 @@ function fakeDynamic() {
     exportWalletKey: async () => {
       dyn.calls.exportWalletKey += 1;
       if (dyn.exportError) throw dyn.exportError;
+      return dyn.exportResult;
     },
     clearExportFrame: () => { dyn.calls.clearExportFrame += 1; }
   };
@@ -271,4 +273,56 @@ test('a failed Dynamic reveal shows friendly copy and never provider text', asyn
   const toast = doc.querySelector('#toast').textContent;
   assert.match(toast, /Key export could not be opened/);
   assert.equal(/Elevated|TokenScope|Dynamic/i.test(toast), false);
+});
+
+test('a refused secure export authorization shows the denial message and never reveals', async () => {
+  const { doc, dyn } = await signInWithPortfolio({
+    balance: { status: 'available', amount: '1234.56' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z'
+  });
+  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'signed in');
+  // The real bundle rejects with this code before Dynamic's reveal is ever started.
+  dyn.exportError = Object.assign(new Error('Secure export authorization was denied'), { code: 'EXPORT_AUTHORIZATION_DENIED' });
+
+  doc.querySelector('#exportWalletKey').click();
+  await settle();
+  doc.querySelector('#continueExportKey').click();
+  await waitFor(() => doc.querySelector('#toast').textContent.length > 0, 'denial toast');
+
+  assert.equal(doc.querySelector('#toast').textContent, 'Secure export authorization was denied');
+  assert.equal(doc.querySelector('#exportKeyStatus').textContent, 'Secure export authorization was denied');
+  assert.equal(doc.querySelector('#exportKeyModal').classList.contains('visible'), true, 'the owner stays in the dialog to retry');
+  assert.equal(doc.querySelector('#continueExportKey').disabled, false);
+});
+
+test('a legacy wallet reveal keeps the dialog open so the owner can see the secure frame', async () => {
+  const { doc, dyn } = await signInWithPortfolio({
+    balance: { status: 'available', amount: '1234.56' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z'
+  });
+  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'signed in');
+  dyn.exportResult = { mode: 'legacy' };
+
+  doc.querySelector('#exportWalletKey').click();
+  await settle();
+  doc.querySelector('#continueExportKey').click();
+  await waitFor(() => dyn.calls.exportWalletKey === 1, 'legacy reveal started');
+  await settle();
+
+  assert.equal(doc.querySelector('#exportKeyModal').classList.contains('visible'), true);
+  assert.match(doc.querySelector('#exportKeyStatus').textContent, /shown inside the secure frame/);
+  assert.ok(doc.querySelector('#legacyExportFrame'), 'the legacy reveal has a frame inside the dialog');
+  assert.equal(dyn.calls.clearExportFrame, 0, 'the frame is not cleared while the owner is viewing it');
+});
+
+test('a WaaS reveal closes the export dialog once Dynamic finishes', async () => {
+  const { doc, dyn } = await signInWithPortfolio({
+    balance: { status: 'available', amount: '1234.56' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z'
+  });
+  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'signed in');
+  dyn.exportResult = { mode: 'waas' };
+
+  doc.querySelector('#exportWalletKey').click();
+  await settle();
+  doc.querySelector('#continueExportKey').click();
+  await waitFor(() => !doc.querySelector('#exportKeyModal').classList.contains('visible'), 'dialog closes');
+  assert.equal(dyn.calls.exportWalletKey, 1);
 });
