@@ -67,7 +67,7 @@ Run these files, in order, in the Supabase SQL Editor:
 
 1. `supabase/migrations/0001_handoff_mainnet_schema.sql` — initial schema.
 2. `supabase/migrations/0002_claim_handoff_profile.sql` — atomic, server-only profile and destination claim.
-3. `supabase/migrations/0003_payment_requests_and_ledger.sql` — payment execution ledger and public profile support.
+3. `supabase/migrations/0003_payment_execution_guards.sql` — payment execution guards and public profile support.
 4. `supabase/migrations/0004_exact_output_merchant_settlement.sql` — exact-output merchant settlement fields and policies.
 
 ## Deployment checks

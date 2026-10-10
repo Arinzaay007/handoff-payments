@@ -7,7 +7,8 @@
     "start": "node server.js",
     "build:dynamic": "esbuild src/dynamic-client.js --bundle --platform=browser --format=iife --global-name=HandoffDynamicBundle --define:process.env.NODE_ENV='\"production\"' --minify --outfile=public/dynamic-client.js",
     "build": "npm run build:dynamic",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "release:check": "bash scripts/release-production.sh --check"
   },
   "dependencies": {
     "@dynamic-labs/sdk-react-core": "^5.10.0",
