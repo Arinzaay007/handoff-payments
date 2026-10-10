@@ -3,12 +3,14 @@ import {
   getWalletAccounts,
   initializeClient,
   logout,
+  refreshAuth,
   registerPasskey,
   sendEmailOTP,
   signInWithPasskey,
   verifyOTP,
   waitForClientInitialized
 } from '@dynamic-labs-sdk/client';
+import { createWaasWalletAccounts, getChainsMissingWaasWalletAccounts } from '@dynamic-labs-sdk/client/waas';
 import { addEvmExtension, isEvmWalletAccount } from '@dynamic-labs-sdk/evm';
 
 let dynamicClient;
@@ -35,6 +37,26 @@ async function snapshot() {
   };
 }
 
+// Makes sure a signed-in user has an EVM embedded wallet, then rotates the token.
+// Never throws: any failure is logged as a warning and the current snapshot is returned.
+async function ensureEvmWallet() {
+  try {
+    if (!dynamicClient?.user) return snapshot();
+
+    const accounts = await getWalletAccounts();
+    if (accounts.some(isEvmWalletAccount)) return snapshot();
+
+    const evmChains = getChainsMissingWaasWalletAccounts().filter(chain => chain === 'EVM');
+    if (evmChains.length > 0) {
+      await createWaasWalletAccounts({ chains: evmChains });
+    }
+    await refreshAuth();
+  } catch (error) {
+    console.warn('Handoff: could not ensure EVM wallet for this session.', error);
+  }
+  return snapshot();
+}
+
 async function initialize({ environmentId }) {
   if (!environmentId) throw new Error('Dynamic is not configured for this deployment.');
   if (dynamicClient && initializedEnvironmentId === environmentId) return snapshot();
@@ -51,7 +73,7 @@ async function initialize({ environmentId }) {
   addEvmExtension();
   await initializeClient();
   await waitForClientInitialized(dynamicClient);
-  return snapshot();
+  return ensureEvmWallet();
 }
 
 async function sendEmailCode(email) {
@@ -62,13 +84,13 @@ async function sendEmailCode(email) {
 async function verifyEmailCode(otpVerification, verificationToken) {
   if (!dynamicClient) throw new Error('Dynamic has not initialized.');
   await verifyOTP({ otpVerification, verificationToken });
-  return snapshot();
+  return ensureEvmWallet();
 }
 
 async function usePasskey() {
   if (!dynamicClient) throw new Error('Dynamic has not initialized.');
   await signInWithPasskey();
-  return snapshot();
+  return ensureEvmWallet();
 }
 
 async function addPasskey() {
