@@ -10,16 +10,25 @@ function assertConfigured() {
 
 async function request(path, { method = 'GET', body } = {}) {
   assertConfigured();
-  const response = await fetch(`${config.supabase.url}/rest/v1/${path}`, {
-    method,
-    headers: {
-      apikey: config.supabase.serviceRoleKey,
-      Authorization: `Bearer ${config.supabase.serviceRoleKey}`,
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation'
-    },
-    body: body ? JSON.stringify(body) : undefined
-  });
+  let response;
+  try {
+    response = await fetch(`${config.supabase.url}/rest/v1/${path}`, {
+      method,
+      headers: {
+        apikey: config.supabase.serviceRoleKey,
+        Authorization: `Bearer ${config.supabase.serviceRoleKey}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation'
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+  } catch {
+    // Fail closed with 503 rather than a generic 400 or a leaked transport error.
+    const error = new Error('The Handoff database is temporarily unreachable. Try again shortly.');
+    error.code = 'DATABASE_UNAVAILABLE';
+    error.status = 503;
+    throw error;
+  }
   const raw = await response.text();
   let payload;
   try { payload = raw ? JSON.parse(raw) : null; } catch { payload = raw; }

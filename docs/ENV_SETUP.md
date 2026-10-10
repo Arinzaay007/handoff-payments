@@ -10,15 +10,37 @@ DYNAMIC_ENVIRONMENT_ID=
 
 # Server-only Supabase access. Use exactly one key name below.
 SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-# SUPABASE_SECRET_KEY=
+# Preferred on current Supabase projects.
+SUPABASE_SECRET_KEY=
+# Legacy projects only; the server accepts either, but prefer SUPABASE_SECRET_KEY.
+# SUPABASE_SERVICE_ROLE_KEY=
 
 # Conservative mainnet controls, in USDC six-decimal smallest units.
 MAX_MAINNET_USDC_MINOR=25000000
 MAX_DAILY_MAINNET_USDC_MINOR=100000000
 ```
 
-`SUPABASE_SECRET_KEY` is the current Supabase name; `SUPABASE_SERVICE_ROLE_KEY` is supported for legacy projects. The server accepts either, but never exposes either one.
+`SUPABASE_SECRET_KEY` is the current Supabase name; `SUPABASE_SERVICE_ROLE_KEY`
+is supported for legacy projects. The server accepts either, but never exposes
+either one.
+
+## Render
+
+On Render these five variables are declared in [`render.yaml`](../render.yaml)
+with `sync: false`, so the dashboard prompts for each value. See
+[`docs/RENDER_DEPLOY.md`](RENDER_DEPLOY.md) for the full walkthrough.
+
+| Variable | Where it goes |
+| --- | --- |
+| `DYNAMIC_ENVIRONMENT_ID` | Render Variables (public by design) |
+| `SUPABASE_URL` | Render Variables (public) |
+| `SUPABASE_SECRET_KEY` | Render Variables — **server-only secret** |
+| `MAX_MAINNET_USDC_MINOR` | Render Variables (non-secret cap) |
+| `MAX_DAILY_MAINNET_USDC_MINOR` | Render Variables (non-secret cap) |
+
+Rotate the previously exposed Supabase key before you paste the replacement.
+Never paste a key into a chat, a commit, or a browser.
+
 
 ## Local development
 

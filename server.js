@@ -30,7 +30,7 @@ function send(res, status, body, type = 'application/json; charset=utf-8') {
 function sendError(res, error) {
   let status = error.status || 400;
   let message = error.message || 'Request failed.';
-  if (error.code === 'DATABASE_NOT_CONFIGURED') status = 503;
+  if (error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'DATABASE_UNAVAILABLE') status = 503;
   if (error.details?.code === 'PGRST202') {
     status = 503;
     message = 'The profile-claim database migration has not been applied yet.';

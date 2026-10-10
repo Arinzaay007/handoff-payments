@@ -6,3 +6,8 @@
 # Installed dependencies and logs
 node_modules/
 npm-debug.log*
+
+# Generated browser bundle. `npm run build` (esbuild) always regenerates this
+# from src/dynamic-client.js, so it is never committed. The Render build command
+# runs `npm ci && npm run build`, which recreates it on every deploy.
+public/dynamic-client.js
