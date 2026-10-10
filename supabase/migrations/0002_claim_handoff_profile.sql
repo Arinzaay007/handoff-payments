@@ -36,9 +36,9 @@ begin
     raise exception 'A valid Monad recipient wallet is required.' using errcode = '22023';
   end if;
 
-  select * into v_profile
-  from public.profiles
-  where auth_subject = p_auth_subject
+  select pr.* into v_profile
+  from public.profiles as pr
+  where pr.auth_subject = p_auth_subject
   for update;
 
   if found then
@@ -64,9 +64,11 @@ begin
     end;
   end if;
 
-  select * into v_wallet
-  from public.recipient_wallets
-  where profile_id = v_profile.id and chain_id = 143 and is_active
+  -- Every column reference below is table-qualified. RETURNS TABLE creates OUT variables named
+  -- profile_id, chain_id, wallet_address, and so on; unqualified names would be ambiguous.
+  select rw.* into v_wallet
+  from public.recipient_wallets as rw
+  where rw.profile_id = v_profile.id and rw.chain_id = 143 and rw.is_active
   for update;
 
   if found then
@@ -75,10 +77,10 @@ begin
     end if;
   else
     if exists (
-      select 1 from public.recipient_wallets
-      where chain_id = 143
-        and lower(wallet_address) = lower(p_wallet_address)
-        and profile_id <> v_profile.id
+      select 1 from public.recipient_wallets as other_rw
+      where other_rw.chain_id = 143
+        and lower(other_rw.wallet_address) = lower(p_wallet_address)
+        and other_rw.profile_id <> v_profile.id
     ) then
       raise exception 'This wallet is already linked to another Handoff user.' using errcode = '23505';
     end if;

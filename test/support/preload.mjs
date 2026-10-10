@@ -7,6 +7,11 @@ const logFile = process.env.HANDOFF_TEST_LOG;
 const jwks = process.env.HANDOFF_TEST_JWKS;
 const environmentId = process.env.DYNAMIC_ENVIRONMENT_ID;
 const supabaseUrl = process.env.SUPABASE_URL;
+const FIXTURE = {
+  morganId: '22222222-2222-4222-8222-222222222222',
+  dormantId: '33333333-3333-4333-8333-333333333333',
+  morganWallet: '0x7777777777777777777777777777777777777777'
+};
 
 function record(entry) {
   if (logFile) fs.appendFileSync(logFile, `${JSON.stringify(entry)}\n`);
@@ -33,6 +38,23 @@ globalThis.fetch = async (input, init = {}) => {
         wallet_address: body.p_wallet_address,
         chain_id: 143
       }]);
+    }
+    // Fixture profiles for the public payment page tests. The sensitive fields below exist in the
+    // mock rows on purpose: the server must never copy them into any public response.
+    if (path.startsWith('profiles?') && path.includes('username_normalized=eq.morgan')) {
+      return json([{
+        id: FIXTURE.morganId, username: 'morgan', display_name: 'Morgan Ellis', avatar_url: null,
+        auth_subject: 'dynamic-subject-secret-morgan', email: 'morgan@example.com'
+      }]);
+    }
+    if (path.startsWith('profiles?') && path.includes('username_normalized=eq.dormant')) {
+      return json([{
+        id: FIXTURE.dormantId, username: 'dormant', display_name: 'Dormant Account', avatar_url: null,
+        auth_subject: 'dynamic-subject-secret-dormant', email: 'dormant@example.com'
+      }]);
+    }
+    if (path.startsWith('recipient_wallets?') && path.includes(`profile_id=eq.${FIXTURE.morganId}`)) {
+      return json([{ wallet_address: FIXTURE.morganWallet, chain_id: 143 }]);
     }
     return json([]);
   }

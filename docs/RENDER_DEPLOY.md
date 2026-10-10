@@ -25,10 +25,11 @@ Also make sure the second database migration is applied. In the Supabase SQL
 editor, run, in order:
 
 1. `supabase/migrations/0001_handoff_mainnet_schema.sql` (already applied)
-2. `supabase/migrations/0002_claim_handoff_profile.sql` (**still to do**)
+2. `supabase/migrations/0002_claim_handoff_profile.sql` (applied to production)
 
-Until 0002 is applied, `POST /api/me/claim` returns **503** with a message that
-the profile-claim migration has not been applied yet.
+If 0002 is missing, `POST /api/me/claim` returns **503** with a message that
+the profile-claim migration has not been applied yet. The 0002 file is safe to
+re-run because it uses `create or replace`.
 
 ---
 
@@ -136,6 +137,12 @@ curl https://<your-service>.onrender.com/api/config
 
 # Public config the browser receives — Dynamic ID only, never a key
 curl https://<your-service>.onrender.com/api/public-config
+
+# Canonical public payment page. Unknown handles get a 200 'not found' page with noindex.
+curl -i https://<your-service>.onrender.com/@your_username
+
+# Display-safe public profile: username, display name, settlement only. Never a wallet.
+curl "https://<your-service>.onrender.com/api/public/profile?handle=your_username"
 
 # Fail-closed check before a profile exists (should be 503 without Supabase config)
 curl "https://<your-service>.onrender.com/api/public/resolve?handle=someone"
