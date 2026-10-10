@@ -3,7 +3,6 @@ import {
   getWalletAccounts,
   initializeClient,
   logout,
-  refreshAuth,
   registerPasskey,
   sendEmailOTP,
   signInWithPasskey,
@@ -48,9 +47,9 @@ async function ensureEvmWallet() {
 
     const evmChains = getChainsMissingWaasWalletAccounts().filter(chain => chain === 'EVM');
     if (evmChains.length > 0) {
+      // createWaasWalletAccounts refreshes auth internally; no extra token rotation needed.
       await createWaasWalletAccounts({ chains: evmChains });
     }
-    await refreshAuth();
   } catch (error) {
     console.warn('Handoff: could not ensure EVM wallet for this session.', error);
   }
@@ -78,6 +77,11 @@ async function initialize({ environmentId }) {
 
 async function sendEmailCode(email) {
   if (!dynamicClient) throw new Error('Dynamic has not initialized.');
+  // A stale authenticated session makes verifyOTP take the credential-linking path,
+  // which needs an elevated token. Handoff only does normal email sign-in, so clear it first.
+  if (dynamicClient.user) {
+    await logout();
+  }
   return sendEmailOTP({ email });
 }
 
