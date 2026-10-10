@@ -68,6 +68,15 @@ test('the recipient dashboard keeps blockchain implementation language out of it
   }
 });
 
+test('a shared payment page is neutral before the payer intentionally opens checkout', () => {
+  const publicLanding = indexHtml.slice(indexHtml.indexOf('<section class="public-page"'), indexHtml.indexOf('<div class="modal-backdrop"'));
+  assert.match(publicLanding, /Send a payment to this Handoff name/);
+  assert.match(publicLanding, />Make a payment/);
+  for (const infrastructureWord of ['Monad', 'USDC', 'EVM', 'Relay', 'wallet', 'network', 'gas', 'chain']) {
+    assert.equal(publicLanding.toLowerCase().includes(infrastructureWord.toLowerCase()), false, `${infrastructureWord} is deferred until payer checkout`);
+  }
+});
+
 test('the browser profile response excludes the recipient wallet while the server retains it only for verified portfolio reads', () => {
   assert.match(profileService, /function publicProfileResponse/);
   assert.doesNotMatch(profileService.slice(profileService.indexOf('function publicProfileResponse'), profileService.indexOf('// Server-internal')), /wallet/);

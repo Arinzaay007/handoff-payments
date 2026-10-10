@@ -131,7 +131,7 @@ test('a payment page at /@morgan shows the public card, not the owner dashboard'
   assert.equal(requests.some(entry => entry.url === '/api/public-config'), false);
 });
 
-test('Pay with USDC opens the existing payment flow with the handle prefilled, not a wallet', async () => {
+test('Make a payment opens the payer-only flow with the handle prefilled, not a wallet', async () => {
   const { doc } = await load({
     url: 'https://handoff-payments.onrender.com/@morgan',
     bodyAttrs: ' class="public-mode" data-public-handle="morgan"',
