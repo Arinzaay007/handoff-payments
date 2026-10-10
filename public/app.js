@@ -6,16 +6,23 @@ const state = {
   quote: null,
   recipient: null,
   auth: {
-    runtime: null,
     ready: false,
-    otpVerification: null,
-    user: null,
-    wallets: [],
-    token: null,
-    profile: null,
-    verifiedWallets: []
+    // True while Dynamic holds a signed-in session for this browser.
+    signedIn: false,
+    // Set when the visitor chose "Continue with email", so a fresh sign-in opens onboarding.
+    awaitingSignIn: false,
+    // Incremented to cancel any older provisioning loop.
+    flowToken: 0,
+    profile: null
   }
 };
+
+// Timing is overridable only by tests, through window.HandoffOnboardingTiming.
+const ONBOARDING = Object.assign({ pollMs: 2000, timeoutMs: 30000 }, window.HandoffOnboardingTiming || {});
+const FRIENDLY_SIGN_IN_UNAVAILABLE = 'Secure sign-in is temporarily unavailable. Please try again shortly.';
+const FRIENDLY_SETUP_FAILED = 'We could not finish setting up your account. Try again in a moment.';
+const FRIENDLY_NETWORK = 'Handoff could not be reached. Check your connection and try again.';
+const WALLET_PENDING_CODES = new Set(['EMBEDDED_WALLET_PENDING', 'EMBEDDED_WALLET_AMBIGUOUS']);
 
 const networks = [
   { id: 1, key: 'ethereum', name: 'Ethereum', short: 'ETH', color: '#dfe7ff', type: 'evm' },
@@ -101,7 +108,7 @@ function renderIdentity() {
   $('#profileMiniAvatar').textContent = avatar;
   $('#profileMiniName').textContent = profile ? name : 'Sign in to Handoff';
   $('#profileMiniHandle').textContent = profile ? handle : 'Claim your payment handle';
-  $('#authButton').innerHTML = state.auth.user ? 'Sign out <span>↗</span>' : 'Sign in <span>↗</span>';
+  $('#authButton').innerHTML = state.auth.signedIn ? 'Sign out <span>↗</span>' : 'Sign in <span>↗</span>';
   $('#balanceAmount').innerHTML = state.balanceVisible && profile ? '—' : '•••';
   $('#balanceSub').innerHTML = profile
     ? '<span class="stable-dot">$</span> Confirmed balance will appear after activity sync <span class="balance-network">on Monad</span>'
@@ -327,190 +334,258 @@ function loadScript(src) {
     document.head.appendChild(script);
   });
 }
-function applyDynamicSnapshot(snapshot) {
-  state.auth.user = snapshot?.user || null;
-  state.auth.wallets = (snapshot?.wallets || []).filter(wallet => isEvmAddress(wallet.address));
-  state.auth.token = snapshot?.token || null;
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+function setAuthStatus(message) {
+  $('#authStatus').textContent = message;
+}
+function showAuthStep(name) {
+  $$('.modal-step', $('#authModal')).forEach(step => step.classList.toggle('active', step.dataset.authStep === name));
+}
+
+// Every call to /api/me* carries the Dynamic access token. The server verifies it; the browser
+// never supplies a recipient wallet. Errors are our own server messages or friendly fallbacks.
+async function apiFetch(path, { method = 'GET', body } = {}) {
+  const token = window.HandoffDynamic?.getToken?.();
+  if (!token) {
+    const error = new Error('Sign in to continue.');
+    error.status = 401;
+    throw error;
+  }
+  let response;
+  try {
+    response = await fetch(path, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } : { Authorization: `Bearer ${token}` },
+      body: body ? JSON.stringify(body) : undefined
+    });
+  } catch {
+    const error = new Error(FRIENDLY_NETWORK);
+    error.status = 0;
+    throw error;
+  }
+  let data = {};
+  try { data = await response.json(); } catch { data = {}; }
+  if (!response.ok) {
+    const error = new Error(data.message || FRIENDLY_SETUP_FAILED);
+    error.status = response.status;
+    error.code = data.code || null;
+    throw error;
+  }
+  return data;
+}
+
+function resetLocalSession() {
+  state.auth.flowToken += 1;
+  state.auth.signedIn = false;
+  state.auth.awaitingSignIn = false;
+  state.auth.profile = null;
   renderIdentity();
 }
+
+async function expireSession() {
+  try { await window.HandoffDynamic?.signOut?.(); } catch { /* Local state still resets below. */ }
+  resetLocalSession();
+  showAuthStep('start');
+  setAuthStatus('Your session ended. Continue with email to sign in again.');
+  openModal('authModal');
+}
+
+function setProvisioningState({ slow = false, message = '' } = {}) {
+  $('#provisioningTitle').textContent = 'Setting up your secure payment account…';
+  $('#provisioningText').textContent = slow
+    ? 'This is taking longer than usual. Retry setup if it does not finish.'
+    : 'This only takes a few seconds.';
+  $('#provisioningStatus').textContent = message;
+  const retry = $('#retryWalletSetup');
+  retry.hidden = !slow && !message;
+  retry.disabled = false;
+  retry.innerHTML = 'Retry setup <span>↻</span>';
+}
+
+function showClaimStep(flow) {
+  if (flow !== state.auth.flowToken) return;
+  showAuthStep('claim');
+  $('#claimStatus').textContent = '';
+}
+
+// Polls the server until Dynamic has provisioned one verified embedded EVM wallet.
+// Returns a boolean only. The browser never sees an address during onboarding.
+async function waitForEmbeddedWallet(flow) {
+  const startedAt = Date.now();
+  while (flow === state.auth.flowToken) {
+    try {
+      const status = await apiFetch('/api/me/wallet-status');
+      if (status.ready) return showClaimStep(flow);
+    } catch (error) {
+      if (error.status === 401) return expireSession();
+      // Transient failures keep polling until the timeout.
+    }
+    if (flow !== state.auth.flowToken) return;
+    if (Date.now() - startedAt >= ONBOARDING.timeoutMs) {
+      return setProvisioningState({ slow: true });
+    }
+    await delay(ONBOARDING.pollMs);
+  }
+}
+
+async function resumeOnboarding() {
+  const flow = ++state.auth.flowToken;
+  showAuthStep('provisioning');
+  setProvisioningState();
+  openModal('authModal');
+  try {
+    const data = await apiFetch('/api/me');
+    state.auth.profile = data.profile || null;
+    renderIdentity();
+    if (state.auth.profile) {
+      state.auth.awaitingSignIn = false;
+      closeModals();
+      toast(`Signed in as @${state.auth.profile.username}.`);
+      return;
+    }
+  } catch (error) {
+    if (error.status === 401) return expireSession();
+    // Fall through: provisioning polling reports problems in friendly terms.
+  }
+  await waitForEmbeddedWallet(flow);
+}
+
+async function retryWalletSetup() {
+  const flow = ++state.auth.flowToken;
+  setProvisioningState();
+  const button = $('#retryWalletSetup');
+  button.hidden = true;
+  try {
+    await window.HandoffDynamic.retryWalletSetup();
+  } catch (error) {
+    // Raw provider errors stay in the console; the user sees friendly copy only.
+    console.warn('Handoff: wallet setup retry failed.', error);
+    setProvisioningState({ slow: true, message: FRIENDLY_SETUP_FAILED });
+    return;
+  }
+  await waitForEmbeddedWallet(flow);
+}
+
+// Dynamic's hosted widget takes over for email code and passkey. Our modal steps aside.
+function continueWithEmail() {
+  if (!state.auth.ready || !window.HandoffDynamic) return toast('Secure sign-in is still loading. Try again in a moment.');
+  state.auth.awaitingSignIn = true;
+  closeModals();
+  try {
+    window.HandoffDynamic.openAuth();
+  } catch (error) {
+    console.warn('Handoff: could not open Dynamic sign-in.', error);
+    state.auth.awaitingSignIn = false;
+    showAuthStep('start');
+    setAuthStatus(FRIENDLY_SIGN_IN_UNAVAILABLE);
+    openModal('authModal');
+  }
+}
+
+// Called by the Dynamic bundle whenever its session changes.
+async function handleAuthChange({ signedIn }) {
+  if (!signedIn) {
+    if (state.auth.signedIn) resetLocalSession();
+    return;
+  }
+  state.auth.signedIn = true;
+  renderIdentity();
+  if (state.auth.awaitingSignIn) {
+    state.auth.awaitingSignIn = false;
+    return resumeOnboarding();
+  }
+  // Silent session restore on page load: show the signed-in identity without opening onboarding.
+  try {
+    const data = await apiFetch('/api/me');
+    state.auth.profile = data.profile || null;
+    renderIdentity();
+  } catch (error) {
+    if (error.status === 401) await expireSession();
+  }
+}
+
+function openAuthFlow() {
+  if (state.auth.profile) return goTo('identity');
+  if (state.auth.signedIn) return resumeOnboarding();
+  showAuthStep('start');
+  openModal('authModal');
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (window.HandoffDynamic) return resolve();
+    const existing = document.querySelector(`script[data-handoff-sdk="${src}"]`);
+    if (existing) {
+      existing.addEventListener('load', resolve, { once: true });
+      existing.addEventListener('error', () => reject(new Error('Unable to load secure sign-in.')), { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.dataset.handoffSdk = src;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('Unable to load secure sign-in.'));
+    document.head.appendChild(script);
+  });
+}
+
 async function initialiseDynamic() {
   try {
     const response = await fetch('/api/public-config');
     if (!response.ok) throw new Error('Unable to load public sign-in configuration.');
-    state.auth.runtime = await response.json();
-    if (!state.auth.runtime.dynamic?.enabled) return;
-    await loadScript('/dynamic-client.js');
-    const snapshot = await window.HandoffDynamic.initialize({ environmentId: state.auth.runtime.dynamic.environmentId });
-    state.auth.ready = true;
-    applyDynamicSnapshot(snapshot);
-    if (state.auth.user && state.auth.token) await loadServerProfile();
-  } catch (error) {
-    console.warn('Dynamic initialization unavailable:', error.message);
-    $('#authStatus').textContent = 'Secure sign-in is unavailable on this origin. Check the Dynamic CORS origin configuration.';
-  }
-}
-async function apiMe() {
-  const token = window.HandoffDynamic?.getToken?.();
-  if (!token) throw new Error('Sign in to continue.');
-  const response = await fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } });
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload.message || 'Unable to load your Handoff profile.');
-  return payload;
-}
-async function loadServerProfile() {
-  const data = await apiMe();
-  state.auth.profile = data.profile || null;
-  state.auth.verifiedWallets = data.verifiedWallets || [];
-  renderIdentity();
-  return data;
-}
-function prepareClaim(wallets) {
-  const select = $('#claimWallet');
-  const options = (wallets || []).filter(isEvmAddress);
-  select.innerHTML = options.length
-    ? options.map(wallet => `<option value="${wallet}">${shortAddress(wallet)} · verified by Dynamic</option>`).join('')
-    : '<option value="">No verified EVM wallet found</option>';
-  $('#claimUsernameButton').disabled = !options.length;
-}
-async function completeAuthentication() {
-  const snapshot = await window.HandoffDynamic.snapshot();
-  applyDynamicSnapshot(snapshot);
-  try {
-    const data = await loadServerProfile();
-    if (data.profile) {
-      closeModals();
-      toast(`Signed in as @${data.profile.username}.`);
+    const runtime = await response.json();
+    if (!runtime.dynamic?.enabled) {
+      setAuthStatus('Secure sign-in is not configured for this deployment yet.');
       return;
     }
-    prepareClaim(data.verifiedWallets);
-    showAuthStep('claim');
-    $('#claimStatus').textContent = 'Choose your username. The server will only accept a wallet verified by this session.';
+    await loadScript('/dynamic-client.js');
+    await window.HandoffDynamic.initialize({
+      environmentId: runtime.dynamic.environmentId,
+      onChange: handleAuthChange
+    });
+    state.auth.ready = true;
   } catch (error) {
-    prepareClaim(state.auth.wallets.map(wallet => wallet.address));
-    showAuthStep('claim');
-    $('#claimUsernameButton').disabled = true;
-    $('#claimStatus').textContent = `Dynamic sign-in succeeded, but profile activation is unavailable: ${error.message}`;
+    console.warn('Dynamic initialization unavailable:', error);
+    setAuthStatus(FRIENDLY_SIGN_IN_UNAVAILABLE);
   }
 }
-function openAuthFlow() {
-  if (state.auth.user) {
-    if (state.auth.profile) return goTo('identity');
-    prepareClaim(state.auth.verifiedWallets.length ? state.auth.verifiedWallets : state.auth.wallets.map(wallet => wallet.address));
-    showAuthStep('claim');
-  } else {
-    showAuthStep('email');
-  }
-  openModal('authModal');
-}
-async function sendEmailCode() {
-  const email = $('#authEmail').value.trim();
-  if (!/^\S+@\S+\.\S+$/.test(email)) return toast('Enter a valid email address.');
-  if (!state.auth.ready || !window.HandoffDynamic) return toast('Secure sign-in is still loading. Try again in a moment.');
-  const button = $('#sendEmailCode');
-  button.disabled = true;
-  button.textContent = 'Sending…';
-  try {
-    state.auth.otpVerification = await window.HandoffDynamic.sendEmailCode(email);
-    $('#codeDestination').textContent = `A secure code was sent to ${email}.`;
-    $('#codeStatus').textContent = '';
-    showAuthStep('code');
-  } catch (error) {
-    $('#authStatus').textContent = error.message || 'Unable to send a code.';
-    toast(error.message || 'Unable to send a code.');
-  } finally {
-    button.disabled = false;
-    button.innerHTML = 'Send secure code <span>→</span>';
-  }
-}
-async function verifyEmailCode() {
-  const code = $('#authCode').value.trim();
-  if (!state.auth.otpVerification || !code) return toast('Enter the code from your email.');
-  const button = $('#verifyEmailCode');
-  button.disabled = true;
-  button.textContent = 'Verifying…';
-  try {
-    await window.HandoffDynamic.verifyEmailCode(state.auth.otpVerification, code);
-    state.auth.otpVerification = null;
-    await completeAuthentication();
-  } catch (error) {
-    $('#codeStatus').textContent = error.message || 'That code could not be verified.';
-    toast(error.message || 'That code could not be verified.');
-  } finally {
-    button.disabled = false;
-    button.innerHTML = 'Verify &amp; continue <span>→</span>';
-  }
-}
-async function passkeySignIn() {
-  if (!state.auth.ready || !window.HandoffDynamic) return toast('Secure sign-in is still loading.');
-  const button = $('#passkeySignIn');
-  button.disabled = true;
-  button.textContent = 'Opening passkey…';
-  try {
-    await window.HandoffDynamic.usePasskey();
-    await completeAuthentication();
-  } catch (error) {
-    $('#authStatus').textContent = error.message || 'Passkey sign-in was not completed.';
-  } finally {
-    button.disabled = false;
-    button.textContent = 'Use an existing passkey instead';
-  }
-}
+
 async function claimUsername() {
   const username = $('#claimUsername').value.trim().replace(/^@/, '').toLowerCase();
-  const walletAddress = $('#claimWallet').value;
   if (!/^[a-z0-9_]{3,24}$/.test(username)) return toast('Use 3–24 lowercase letters, numbers, or underscores.');
-  if (!isEvmAddress(walletAddress)) return toast('A verified EVM wallet is required.');
-  const token = window.HandoffDynamic?.getToken?.();
-  if (!token) return toast('Sign in again to claim a username.');
   const button = $('#claimUsernameButton');
   button.disabled = true;
   button.textContent = 'Claiming…';
   try {
-    const response = await fetch('/api/me/claim', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ username, walletAddress })
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Unable to claim this username.');
+    // Only the username is sent. The server derives the recipient from the verified session.
+    const data = await apiFetch('/api/me/claim', { method: 'POST', body: { username } });
     state.auth.profile = data.profile;
     renderIdentity();
     closeModals();
     toast(`@${data.profile.username} is ready to receive USDC on Monad.`);
   } catch (error) {
-    $('#claimStatus').textContent = error.message;
-    toast(error.message);
+    if (error.status === 401) return expireSession();
+    if (WALLET_PENDING_CODES.has(error.code)) {
+      showAuthStep('provisioning');
+      setProvisioningState({ slow: true, message: error.message });
+    } else {
+      $('#claimStatus').textContent = error.message;
+      toast(error.message);
+    }
   } finally {
     button.disabled = false;
     button.innerHTML = 'Claim username <span>→</span>';
   }
 }
-async function registerPasskey() {
-  if (!window.HandoffDynamic) return;
-  const button = $('#registerPasskey');
-  button.disabled = true;
-  button.textContent = 'Adding passkey…';
-  try {
-    await window.HandoffDynamic.addPasskey();
-    $('#claimStatus').textContent = 'Passkey added to this device.';
-    toast('Passkey added to this device.');
-  } catch (error) {
-    $('#claimStatus').textContent = error.message || 'Passkey registration was not completed.';
-  } finally {
-    button.disabled = false;
-    button.textContent = 'Add a passkey to this device';
-  }
-}
+
 async function signOut() {
   try {
     await window.HandoffDynamic?.signOut?.();
   } catch { /* Local UI is still reset. */ }
-  state.auth.user = null;
-  state.auth.wallets = [];
-  state.auth.token = null;
-  state.auth.profile = null;
-  state.auth.verifiedWallets = [];
-  renderIdentity();
+  resetLocalSession();
   toast('Signed out of Handoff.');
 }
 
@@ -529,7 +604,7 @@ function bindEvents() {
   $('#copyWallet').addEventListener('click', () => state.auth.profile ? copyText(state.auth.profile.wallet, 'Monad recipient wallet copied') : openAuthFlow());
   $('#shareProfile').addEventListener('click', () => state.auth.profile ? copyText(`https://handoff.xyz/${state.auth.profile.username}`, 'Payment page copied') : openAuthFlow());
   $('#profileButton').addEventListener('click', () => state.auth.profile ? goTo('identity') : openAuthFlow());
-  $('#authButton').addEventListener('click', () => state.auth.user ? signOut() : openAuthFlow());
+  $('#authButton').addEventListener('click', () => state.auth.signedIn ? signOut() : openAuthFlow());
   $('#openSecurity').addEventListener('click', () => toast('Handoff is non-custodial: Relay routes directly to a verified Monad recipient wallet.'));
   $('#openNotifications').addEventListener('click', () => toast('Settlement and request updates appear after they are stored server-side.'));
   $('#mobileMenu').addEventListener('click', () => $('.sidebar').classList.toggle('open'));
@@ -559,12 +634,9 @@ function bindEvents() {
     $$('.filter').forEach(item => item.classList.toggle('active', item === button));
     toast('Activity filters apply once confirmed payments are stored.');
   }));
-  $('#sendEmailCode').addEventListener('click', sendEmailCode);
-  $('#verifyEmailCode').addEventListener('click', verifyEmailCode);
-  $('#passkeySignIn').addEventListener('click', passkeySignIn);
-  $('#backToEmail').addEventListener('click', () => showAuthStep('email'));
+  $('#continueWithEmail').addEventListener('click', continueWithEmail);
+  $('#retryWalletSetup').addEventListener('click', retryWalletSetup);
   $('#claimUsernameButton').addEventListener('click', claimUsername);
-  $('#registerPasskey').addEventListener('click', registerPasskey);
 }
 
 function init() {

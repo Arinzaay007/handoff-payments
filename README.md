@@ -15,12 +15,14 @@ public/
 src/
   config.js
   env.js
-  dynamicAuth.js
+  dynamicAuth.js             # server-side Dynamic JWT verification and embedded-wallet derivation
+  dynamicSettings.js         # pure Dynamic widget settings: embedded EVM wallets only
   identity.js
   profileService.js
   supabase.js
   usernameService.js
-  dynamic-client.js          # Dynamic SDK bundle source
+  dynamic-client.js          # Dynamic SDK React entry (window.HandoffDynamic)
+test/                        # node:test suites (npm test)
 supabase/migrations/
   0001_handoff_mainnet_schema.sql
   0002_claim_handoff_profile.sql
@@ -43,9 +45,9 @@ server, build script, and `.env` loader all expect these nested paths.
 
 ## What this build includes
 
-- Dynamic-powered **email and passkey** onboarding in a custom Handoff UI. No phone, SMS, WhatsApp, X, or Instagram flow is included.
+- Recipient onboarding through Dynamic's hosted widget auth, limited to **email OTP and passkeys**. After sign-in, Handoff waits for one Dynamic **embedded EVM wallet** and activates the `@username` once it is provisioned. Recipients never see or enter a wallet address. No injected or external wallets (MetaMask, WalletConnect, or others), social, phone, SMS, WhatsApp, X, or Instagram flow is included. Payer checkout still uses the connected `window.ethereum` wallet to sign.
 - A server-only Dynamic session boundary: the server validates a signed access token, the Dynamic Live environment ID, and `user:basic` before reading or writing a profile.
-- A secure profile-claim design: a username can be bound only to an EVM address contained in the user's verified Dynamic credentials. The browser cannot supply an arbitrary recipient wallet.
+- A secure profile-claim design: `POST /api/me/claim` accepts only `{ "username" }`. The server derives the recipient wallet only from an embedded EVM credential in the caller's verified Dynamic JWT, and rejects any `walletAddress` or other field. The browser cannot supply a recipient wallet.
 - A Supabase data model plus an atomic profile-claim migration.
 - Ten planned payment sources: Ethereum, Base, Arbitrum, Optimism, Polygon, BNB Chain, Avalanche, Solana, TON, and Celo → USDC on Monad.
 - A small Node server that proxies Relay's live `GET /chains` and `POST /quote/v2` APIs. The UI syncs availability from the real API.
@@ -83,7 +85,7 @@ bundle is a build artifact and is not committed.
 
 1. Add the Supabase secret/service key directly to the deployment host; never to the browser or chat.
 2. Apply `supabase/migrations/0002_claim_handoff_profile.sql`.
-3. Add the exact deployed HTTPS origin to Dynamic CORS settings and test email + passkey sign-in.
+3. Add the exact deployed HTTPS origin to Dynamic CORS settings and test email + passkey sign-in. In the Dynamic dashboard, keep only email OTP and passkeys enabled for sign-in, and keep embedded EVM wallets enabled. Phone, SMS, WhatsApp, and social sign-in must stay disabled.
 4. Build the first controlled route: **Base USDC → Relay → USDC on Monad**. Add official Relay execution/approval handling; a quote is not a transfer.
 5. Persist payment requests, quote IDs, source/destination transaction hashes, status transitions, rate limits, and receipts.
 6. Add monitoring, support flows, security review, and applicable legal/compliance checks before public launch.

@@ -111,14 +111,17 @@ and username claims return **503** rather than falling back to any wallet data.
 
 ## 4. Finish the Dynamic CORS setup
 
-Dynamic Live already has email, passkeys, embedded EVM wallets, Monad Mainnet
-and Base Mainnet enabled, and `http://localhost:3000` is already an allowed
-origin. You must add the exact deployed origin:
+Recipient sign-in is limited to **email OTP and passkeys**, with **embedded EVM
+wallets** provisioned for the recipient. In the Dynamic Live dashboard, confirm
+that phone, SMS, WhatsApp, and social sign-in are disabled, and that embedded
+EVM wallets are enabled. Confirm the environment's chain settings as well.
+`http://localhost:3000` may already be an allowed origin. You must add the exact
+deployed origin:
 
 1. Copy the Render domain, e.g. `https://handoff-payments.onrender.com`.
 2. In Dynamic dashboard → **Security** → **CORS Origins**, add that exact
-   `https://*.onrender.com` origin.
-3. Do **not** use a wildcard for a payments app.
+   origin, e.g. `https://handoff-payments.onrender.com`.
+3. Do **not** use a wildcard such as `https://*.onrender.com` for a payments app.
 
 Until the origin is added, the browser cannot initialise the Dynamic SDK and the
 UI reports that secure sign-in is unavailable on this origin.
@@ -141,8 +144,10 @@ curl "https://<your-service>.onrender.com/api/public/resolve?handle=someone"
 curl "https://<your-service>.onrender.com/api/public/resolve?handle=your_username"
 ```
 
-Then in a browser: open the domain, sign in with email OTP or a passkey, claim a
-username, and confirm the handle resolves to your Monad wallet.
+Then in a browser: open the domain, sign in with email OTP or a passkey, wait for
+the wallet setup step to finish, claim a username, and confirm the handle resolves
+to your Monad wallet. The app shows only a shortened wallet address after
+activation. It never asks for a wallet address.
 
 **Do not send funds yet.** No Relay execution, approval/permit handling, Solana
 or TON adapter, persisted payment requests, status tracking, or receipt

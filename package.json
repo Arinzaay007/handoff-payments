@@ -5,14 +5,18 @@
   "description": "Handoff — one handle, any supported chain, settled on Monad.",
   "scripts": {
     "start": "node server.js",
-    "build:dynamic": "esbuild src/dynamic-client.js --bundle --platform=browser --format=iife --global-name=HandoffDynamicBundle --outfile=public/dynamic-client.js",
-    "build": "npm run build:dynamic"
+    "build:dynamic": "esbuild src/dynamic-client.js --bundle --platform=browser --format=iife --global-name=HandoffDynamicBundle --define:process.env.NODE_ENV='\"production\"' --minify --outfile=public/dynamic-client.js",
+    "build": "npm run build:dynamic",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
-    "@dynamic-labs-sdk/client": "^1.39.1",
-    "@dynamic-labs-sdk/evm": "^1.39.1"
+    "@dynamic-labs/sdk-react-core": "^5.10.0",
+    "@dynamic-labs/waas-evm": "^5.10.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "jsdom": "^26.1.0"
   }
 }
