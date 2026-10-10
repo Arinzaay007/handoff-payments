@@ -90,8 +90,8 @@ Render runs `npm ci && npm run build`, then `npm start`. The Node server binds
 to `0.0.0.0` and reads the `PORT` that Render injects, so no port configuration
 is needed.
 
-The health check hits `GET /api/config`, which returns readiness booleans and
-the mainnet caps only:
+The health check hits `GET /api/config`, which returns readiness booleans,
+the mainnet caps, and Render's public Git commit revision (never a secret):
 
 ```bash
 curl https://<your-service>.onrender.com/api/config
@@ -100,8 +100,9 @@ curl https://<your-service>.onrender.com/api/config
 Expect:
 
 ```json
-{"dynamicConfigured":true,"databaseConfigured":true,
- "mainnetGuards":{"maximumPaymentUsdc":25,"maximumDailyUsdc":100}}
+{"dynamicConfigured":true,"databaseConfigured":true,"relayConfigured":true,
+ "mainnetGuards":{"maximumPaymentUsdc":25,"maximumDailyUsdc":100},
+ "deploymentRevision":"<40-character Git commit SHA>"}
 ```
 
 If `databaseConfigured` is `false`, `SUPABASE_URL` and `SUPABASE_SECRET_KEY` are

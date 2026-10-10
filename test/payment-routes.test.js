@@ -59,6 +59,7 @@ test('the readiness endpoint reports whether Relay is configured, without reveal
   const response = await call('GET', '/api/config');
   assert.equal(response.status, 200);
   assert.equal(response.json.relayConfigured, false, 'no RELAY_API_KEY in the test environment');
+  assert.equal(response.json.deploymentRevision, null, 'local runs have no Render commit revision');
   assert.equal(/RELAY_API_KEY|api_key|apiKey/i.test(response.text), false);
 });
 
