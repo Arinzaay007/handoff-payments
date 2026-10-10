@@ -63,8 +63,6 @@ const RECEIPT_TIMEOUT_MS = 3 * 60 * 1000;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
-const isEvmAddress = value => /^0x[0-9a-fA-F]{40}$/.test(String(value || ''));
-const shortAddress = value => value && isEvmAddress(value) ? `${value.slice(0, 6)}…${value.slice(-4)}` : '—';
 const initial = value => String(value || 'H').trim().charAt(0).toUpperCase() || 'H';
 
 // Canonical public payment page for a username, derived from the origin the page was served from.
@@ -93,13 +91,8 @@ function openModal(id) {
   modal.setAttribute('aria-hidden', 'false');
 }
 function closeModals() {
-  // If the key-export dialog was open, clear Dynamic's export frame as the modal closes.
-  const exportWasOpen = $('#exportKeyModal').classList.contains('visible');
   $('#modalBackdrop').classList.remove('visible');
   $$('.modal.visible').forEach(modal => { modal.classList.remove('visible'); modal.setAttribute('aria-hidden', 'true'); });
-  if (exportWasOpen) {
-    try { window.HandoffDynamic?.clearExportFrame?.(); } catch { /* nothing to clear */ }
-  }
 }
 function goTo(page) {
   $$('.page').forEach(el => el.classList.remove('active'));
@@ -109,7 +102,7 @@ function goTo(page) {
     overview: ['OMNICHAIN PAYMENTS', 'One handle. Every chain.'],
     'get-paid': ['PAYMENT REQUESTS', 'Get paid your way'],
     activity: ['PAYMENT HISTORY', 'Clear from source to settlement'],
-    identity: ['YOUR PAYMENT IDENTITY', 'Your handle, not your address']
+    identity: ['YOUR PAYMENT IDENTITY', 'Your name is how you get paid']
   };
   $('#pageEyebrow').textContent = labels[page][0];
   $('#pageTitle').textContent = labels[page][1];
@@ -203,9 +196,8 @@ function renderIdentity() {
   $('#previewHandle').textContent = profile ? handle : 'Claim a Handoff username';
   $('#previewAvatar').textContent = avatar;
   $('#profileName').textContent = name;
-  $('#profileHandle').textContent = profile ? `${handle} · Ready to receive on Monad` : 'Your Monad recipient wallet stays under your control.';
+  $('#profileHandle').textContent = profile ? `${handle} · Ready to receive on Monad` : 'Sign in with a passkey or email to claim your payment identity.';
   $('#profileAvatar').textContent = avatar;
-  $('#walletAddress').textContent = profile ? shortAddress(profile.wallet) : '—';
   $('#profileMiniAvatar').textContent = avatar;
   $('#profileMiniName').textContent = profile ? name : 'Sign in to Handoff';
   $('#profileMiniHandle').textContent = profile ? handle : 'Claim your payment handle';
@@ -393,7 +385,7 @@ function renderRecipientProof(message) {
     proof.innerHTML = `<span class="avatar gradient-avatar">${initial(recipient.displayName || recipient.username)}</span><span><b>${recipient.displayName || recipient.username} · @${recipient.username}</b><small>Registered Handoff username · receives USDC on Monad</small></span>`;
     return;
   }
-  proof.innerHTML = `<span class="avatar gradient-avatar">@</span><span><b>${message || 'Enter a Handoff username'}</b><small>Handoff resolves the recipient on the server. You never enter a wallet address.</small></span>`;
+  proof.innerHTML = `<span class="avatar gradient-avatar">@</span><span><b>${message || 'Enter a Handoff username'}</b><small>Handoff resolves the recipient securely on the server.</small></span>`;
 }
 async function resolveRecipient() {
   const handle = $('#payRecipient').value.trim();
@@ -973,60 +965,6 @@ async function signOut() {
   toast('Signed out of Handoff.');
 }
 
-// Identity → Open secure Dynamic wallet settings. Owner-only, and delegated completely to
-// Dynamic's profile UI for the existing wallet. This does not migrate, create, replace, or select
-// a wallet in Handoff.
-function openWalletSettings() {
-  if (!state.auth.profile) return openAuthFlow();
-  if (!window.HandoffDynamic?.openWalletSettings) {
-    return toast('Secure wallet settings are still loading. Try again in a moment.');
-  }
-  try {
-    window.HandoffDynamic.openWalletSettings();
-  } catch {
-    toast('Secure wallet settings could not be opened. Try again in a moment.');
-  }
-}
-
-// Identity → Export wallet key. Owner-only: the button is inert without a signed-in profile, and
-// the export itself is Dynamic's embedded-wallet reveal, rendered only inside Dynamic's isolated
-// secure iframe. Handoff code, the server, and this dialog never receive the exported key.
-function openExportKey() {
-  if (!state.auth.profile) return openAuthFlow();
-  $('#exportKeyStatus').textContent = 'The secure window belongs to Dynamic. Closing this dialog clears it.';
-  openModal('exportKeyModal');
-}
-
-const EXPORT_DENIED_MESSAGE = 'Secure export authorization was denied';
-
-async function continueExportKey() {
-  if (!window.HandoffDynamic?.exportWalletKey) {
-    return toast('Secure key export is still loading. Try again in a moment.');
-  }
-  const button = $('#continueExportKey');
-  button.disabled = true;
-  button.textContent = 'Opening secure window…';
-  try {
-    const result = await window.HandoffDynamic.exportWalletKey();
-    // A legacy (V1/V2) reveal stays visible in this dialog until the owner closes it.
-    if (result?.mode === 'legacy') {
-      $('#exportKeyStatus').textContent = 'Your key is shown inside the secure frame above. Closing this dialog clears it.';
-    } else {
-      closeModals();
-    }
-  } catch (error) {
-    if (error?.code === 'EXPORT_AUTHORIZATION_DENIED') {
-      $('#exportKeyStatus').textContent = EXPORT_DENIED_MESSAGE;
-      toast(EXPORT_DENIED_MESSAGE);
-    } else {
-      toast('Key export could not be opened. Try again in a moment.');
-    }
-  } finally {
-    button.disabled = false;
-    button.innerHTML = 'Continue in secure window <span>→</span>';
-  }
-}
-
 function bindEvents() {
   $$('.nav-item').forEach(item => item.addEventListener('click', () => goTo(item.dataset.page)));
   $$('[data-go]').forEach(item => item.addEventListener('click', () => goTo(item.dataset.go)));
@@ -1039,14 +977,10 @@ function bindEvents() {
   $('#toggleBalance').addEventListener('click', () => { state.balanceVisible = !state.balanceVisible; renderIdentity(); });
   $('#copyHandle').addEventListener('click', () => state.auth.profile ? copyText(`@${state.auth.profile.username}`, 'Handoff username copied') : openAuthFlow());
   $('#copyPublicLink').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
-  $('#copyWallet').addEventListener('click', () => state.auth.profile ? copyText(state.auth.profile.wallet, 'Monad recipient wallet copied') : openAuthFlow());
   $('#shareProfile').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
-  $('#openWalletSettings').addEventListener('click', openWalletSettings);
-  $('#exportWalletKey').addEventListener('click', openExportKey);
-  $('#continueExportKey').addEventListener('click', continueExportKey);
   $('#profileButton').addEventListener('click', () => state.auth.profile ? goTo('identity') : openAuthFlow());
   $('#authButton').addEventListener('click', () => state.auth.signedIn ? signOut() : openAuthFlow());
-  $('#openSecurity').addEventListener('click', () => toast('Handoff is non-custodial: Relay routes directly to a verified Monad recipient wallet.'));
+  $('#openSecurity').addEventListener('click', () => toast('Handoff keeps your payment identity simple: sign in securely and share your username.'));
   $('#openNotifications').addEventListener('click', () => toast('Settlement and request updates appear after they are stored server-side.'));
   $('#mobileMenu').addEventListener('click', () => $('.sidebar').classList.toggle('open'));
   $('#modalBackdrop').addEventListener('click', closeModals);

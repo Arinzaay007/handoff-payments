@@ -152,10 +152,10 @@ curl "https://<your-service>.onrender.com/api/public/resolve?handle=someone"
 curl "https://<your-service>.onrender.com/api/public/resolve?handle=your_username"
 ```
 
-Then in a browser: open the domain, sign in with email OTP or a passkey, wait for
+Then in a browser: open the domain, sign in with a passkey or email OTP fallback, wait for
 the wallet setup step to finish, claim a username, and confirm the handle resolves
-to your Monad wallet. The app shows only a shortened wallet address after
-activation. It never asks for a wallet address.
+to your Monad settlement account. The app displays a username payment identity after
+activation and does not display an address.
 
 **Do not send funds yet.** No Relay execution, approval/permit handling, Solana
 or TON adapter, persisted payment requests, status tracking, or receipt

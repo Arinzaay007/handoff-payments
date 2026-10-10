@@ -58,14 +58,17 @@ The tiny local environment loader fills only unset values, so real host environm
 - Handoff verifies the Dynamic access-token signature against Dynamic’s public JWKS and requires the Live environment ID plus the `user:basic` scope before it accepts an authenticated request.
 - Handoff takes the Monad recipient only from a Dynamic **embedded** EVM wallet credential (`wallet_provider: embeddedWallet`) in the token’s verified credentials. A browser cannot submit an arbitrary recipient wallet.
 - The browser SDK registers only embedded EVM wallet connectors. Injected, WalletConnect, and MetaMask connectors and social providers are not registered for recipient onboarding.
-- In the Dynamic dashboard, keep phone, SMS, WhatsApp, and social sign-in disabled, and keep email and passkey enabled. Dashboard settings control which sign-in methods the hosted widget shows.
+- In the Dynamic dashboard, keep phone, SMS, WhatsApp, and social sign-in disabled. Enable **passkeys** and **email OTP only**, and place passkeys before email in the hosted-widget sign-in order. Dashboard settings control the hosted widget; the app opens that widget without implementing its own credential form.
+- Do not enable a wallet-management, seed, recovery-key, or private-key export surface for the Handoff recipient journey. Handoff has no application route or UI for those controls.
 
 ## Supabase migration order
 
 Run these files, in order, in the Supabase SQL Editor:
 
-1. `supabase/migrations/0001_handoff_mainnet_schema.sql` — already applied for the first project setup.
-2. `supabase/migrations/0002_claim_handoff_profile.sql` — adds the atomic, server-only profile and wallet claim function.
+1. `supabase/migrations/0001_handoff_mainnet_schema.sql` — initial schema.
+2. `supabase/migrations/0002_claim_handoff_profile.sql` — atomic, server-only profile and destination claim.
+3. `supabase/migrations/0003_payment_requests_and_ledger.sql` — payment execution ledger and public profile support.
+4. `supabase/migrations/0004_exact_output_merchant_settlement.sql` — exact-output merchant settlement fields and policies.
 
 ## Deployment checks
 
@@ -74,7 +77,7 @@ Run these files, in order, in the Supabase SQL Editor:
 - `GET /api/me` requires a verified Dynamic access token.
 - `GET /api/me/wallet-status` returns only `{ ready: boolean }` for the verified Dynamic session. It never returns an address.
 - `GET /api/me/portfolio` requires a verified Dynamic access token and is scoped to that user's own recipient profile. It returns the real on-chain Monad USDC balance (chain ID 143 verified, ERC-20 `balanceOf` on Monad USDC) with `status: "available" | "unavailable"` — never a database total and never a fake zero — plus receipt activity shown only after the source transaction was submitted. It never returns a payer address, key material, or a recipient wallet. There is no endpoint that exports or accepts a key.
-- `POST /api/me/claim` accepts only `{ "username" }`. It requires a verified Dynamic token with exactly one embedded EVM wallet credential, and the second Supabase migration. Any other field, including `walletAddress`, is rejected with 400.
+- `POST /api/me/claim` accepts only `{ "username" }`. It requires a verified Dynamic passkey/email session with exactly one embedded EVM credential. The browser never submits or receives a recipient address.
 - `GET /api/public/resolve?handle=ada` resolves only a registered Handoff username to its single active Monad recipient wallet.
 - `GET /@ada` serves the public payment page for a registered username. The page URL is derived from the request origin, so the same build works on any host. Unknown or unfunded handles get a not-found page with `noindex`.
 - `GET /api/public/profile?handle=ada` returns only `username`, `displayName`, and `settlement`. It never returns a wallet address, a Dynamic subject, or an email.

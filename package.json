@@ -10,7 +10,6 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
-    "@dynamic-labs/legacy-embedded-wallet-migration": "^5.10.0",
     "@dynamic-labs/sdk-react-core": "^5.10.0",
     "@dynamic-labs/waas-evm": "^5.10.0",
     "@relay-protocol/settlement-sdk": "^0.0.146",

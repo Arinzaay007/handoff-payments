@@ -5,7 +5,7 @@ const zlib = require('zlib');
 const { config, status: configurationStatus, publicRuntimeConfig } = require('./src/config');
 const { resolvePublicRecipient } = require('./src/usernameService');
 const { requireDynamicUser, requireEmbeddedWallet, hasEmbeddedWallet } = require('./src/dynamicAuth');
-const { getProfileForSubject, claimProfile } = require('./src/profileService');
+const { getProfileForSubject, claimProfile, publicProfileResponse } = require('./src/profileService');
 const { getPublicProfile } = require('./src/publicProfile');
 const { MONAD, publicSourceNetworks } = require('./src/paymentNetworks');
 const { getRecipientPortfolio } = require('./src/portfolio');
@@ -168,7 +168,7 @@ const server = http.createServer(async (req, res) => {
       const user = await requireDynamicUser(req.headers.authorization);
       const profile = await getProfileForSubject(user.subject);
       // Never return wallet addresses here: onboarding must not expose the recipient wallet.
-      return send(res, 200, JSON.stringify({ profile, email: user.email }));
+      return send(res, 200, JSON.stringify({ profile: publicProfileResponse(profile), email: user.email }));
     } catch (error) {
       return sendError(res, error);
     }

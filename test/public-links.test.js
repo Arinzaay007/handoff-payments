@@ -154,7 +154,7 @@ test('Share my payment page copies the real /@username URL on the current origin
     url: 'https://pay.example.test/',
     token: 'test-access-token',
     routes: {
-      'GET /api/me': () => ({ profile: { id: 'p1', username: 'ada', displayName: 'Ada', wallet: '0x1111111111111111111111111111111111111111' } })
+      'GET /api/me': () => ({ profile: { id: 'p1', username: 'ada', displayName: 'Ada' } })
     }
   });
   // Dynamic reports a restored session. The app loads the profile through /api/me.

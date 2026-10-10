@@ -1,27 +1,16 @@
 /**
- * Browser bundle: Dynamic hosted (widget) auth for Handoff recipient onboarding, plus the
- * owner-only secure key export.
+ * Browser bundle: Dynamic hosted authentication and passkey-backed embedded EVM account setup for
+ * Handoff recipients. Recipients use a passkey or email fallback; Handoff never displays, exports,
+ * imports, or accepts seed phrases, private keys, or wallet addresses.
  *
  * Built by `npm run build` into public/dynamic-client.js (never committed).
  *
  * Exposes window.HandoffDynamic:
  *   initialize({ environmentId, onChange })  -> Promise, resolves when the SDK has loaded
- *   openAuth()          opens Dynamic's hosted sign-in widget (email code or passkey)
+ *   openAuth()          opens Dynamic's hosted sign-in widget (passkey or email fallback)
  *   getToken()          current Dynamic access token, or null (sent to the server as a Bearer)
  *   retryWalletSetup()  asks Dynamic to provision the embedded EVM account again
  *   signOut()           ends the Dynamic session
- *   openWalletSettings() opens Dynamic's secure user profile for the signed-in owner
- *   exportWalletKey()   authorizes the owner (wallet:export step-up, then wallet export MFA), then
- *                       opens Dynamic's embedded-wallet key reveal. Refusal rejects with
- *                       code EXPORT_AUTHORIZATION_DENIED and never reaches the reveal.
- *   clearExportFrame()  clears Dynamic's export frame and any legacy export frame (called when the
- *                       Handoff modal closes)
- *
- * Handoff never receives, stores, exports, imports, encrypts, or recovers a private key.
- * Key material stays inside Dynamic's embedded-wallet infrastructure: the export flow is
- * Dynamic's own embedded-wallet reveal (initExportProcess), which renders the key only inside
- * Dynamic's isolated secure iframe. This bundle never receives the revealed value, never logs
- * it, and never sends it anywhere — the reveal promise is deliberately discarded.
  */
 import { createElement as h, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -31,18 +20,10 @@ import {
   getAuthToken,
   useDynamicContext,
   useDynamicWaas,
-  useEmbeddedReveal,
-  useIsLoggedIn,
-  useIsMfaRequiredForAction,
-  useStepUpAuthentication
+  useIsLoggedIn
 } from '@dynamic-labs/sdk-react-core';
-import {
-  LegacyWalletMigrationProvider,
-  useLegacyWalletExport
-} from '@dynamic-labs/legacy-embedded-wallet-migration';
 import { DynamicWaasEVMConnectors } from '@dynamic-labs/waas-evm';
 import { buildDynamicSettings } from './dynamicSettings.js';
-import { LEGACY_EXPORT_FRAME_ID, runWalletExport } from './walletExport.js';
 
 let api = null;
 let apiWaiters = [];
@@ -59,34 +40,11 @@ function requireApi() {
 
 // Lives inside DynamicContextProvider so it can use the SDK hooks. It renders nothing.
 function DynamicBridge({ onChange }) {
-  const {
-    setShowAuthFlow,
-    setShowDynamicUserProfile,
-    sdkHasLoaded,
-    handleLogOut,
-    primaryWallet,
-    user
-  } = useDynamicContext();
+  const { setShowAuthFlow, sdkHasLoaded, handleLogOut } = useDynamicContext();
   const isLoggedIn = useIsLoggedIn();
   const { createWalletAccount } = useDynamicWaas();
-  const { initExportProcess } = useEmbeddedReveal();
-  const { revealWalletKey } = useLegacyWalletExport();
-  const { isStepUpRequired, promptStepUpAuth, promptMfa } = useStepUpAuthentication();
-  const isMfaRequiredForAction = useIsMfaRequiredForAction();
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
-  // Latest SDK functions for the export. Read at click time, so the api object stays stable.
-  const exportDepsRef = useRef(null);
-  exportDepsRef.current = {
-    isStepUpRequired,
-    promptStepUpAuth,
-    promptMfa,
-    isMfaRequiredForAction,
-    initExportProcess,
-    revealLegacyWalletKey: revealWalletKey,
-    primaryWallet,
-    user
-  };
 
   useEffect(() => {
     api = {
@@ -98,30 +56,12 @@ function DynamicBridge({ onChange }) {
         undefined,
         { skipCloseAuthFlow: true }
       ),
-      signOut: () => handleLogOut(),
-      // Opens Dynamic's own secure profile. This only exposes settings for the existing signed-in
-      // wallet; Handoff does not migrate, create, replace, or select a wallet here.
-      openWalletSettings: () => setShowDynamicUserProfile(true),
-      // Owner-only key export. Authorization (wallet:export step-up, then MFA) runs first. Only
-      // then does Dynamic's embedded-wallet reveal start for the existing primary wallet
-      // (recoveryPhrase=false, isPromptForExport=false, walletId=primaryWallet.id). The key is
-      // rendered only inside Dynamic's isolated secure iframe. The resolved value is discarded.
-      exportWalletKey: () => runWalletExport(exportDepsRef.current),
-      // Clears Dynamic's export frame and the legacy frame when the Handoff modal closes. It only
-      // clears. It never reads anything from either frame.
-      clearExportFrame: () => {
-        try {
-          primaryWallet?.connector?.getExportHandler?.()?.clear?.();
-        } catch { /* nothing to clear */ }
-        try {
-          document.getElementById(LEGACY_EXPORT_FRAME_ID)?.replaceChildren();
-        } catch { /* nothing to clear */ }
-      }
+      signOut: () => handleLogOut()
     };
     const waiters = apiWaiters;
     apiWaiters = [];
     waiters.forEach(callback => callback(api));
-  }, [createWalletAccount, handleLogOut, setShowAuthFlow, setShowDynamicUserProfile, primaryWallet]);
+  }, [createWalletAccount, handleLogOut, setShowAuthFlow]);
 
   useEffect(() => {
     if (!sdkHasLoaded) return;
@@ -144,15 +84,9 @@ function initialize({ environmentId, onChange } = {}) {
   container.setAttribute('aria-hidden', 'true');
   document.body.appendChild(container);
 
-  // The provider mounts Dynamic's hosted auth modal itself, so no visible widget is needed here.
-  // LegacyWalletMigrationProvider is required by the SDK when a legacy V1/V2 wallet is present.
-  // autoOpen={false} keeps Dynamic's migration modal closed: nothing here upgrades or recreates a
-  // wallet unless the owner starts it from a visible control (none exists in Handoff).
-  createRoot(container).render(
-    h(DynamicContextProvider, { settings },
-      h(LegacyWalletMigrationProvider, { autoOpen: false },
-        h(DynamicBridge, { onChange: onChange || (() => {}) })))
-  );
+  // Dynamic owns hosted passkey/email authentication and the recipient's embedded account. Handoff
+  // renders no recovery-key, private-key, or wallet-address surface.
+  createRoot(container).render(h(DynamicContextProvider, { settings }, h(DynamicBridge, { onChange: onChange || (() => {}) })));
 
   mounted = new Promise(resolve => onApiReady(resolve));
   return mounted;
@@ -163,8 +97,5 @@ window.HandoffDynamic = {
   openAuth: () => requireApi().openAuth(),
   getToken: () => (api ? api.getToken() : null),
   retryWalletSetup: () => requireApi().retryWalletSetup(),
-  signOut: () => (api ? api.signOut() : undefined),
-  openWalletSettings: () => requireApi().openWalletSettings(),
-  exportWalletKey: () => requireApi().exportWalletKey(),
-  clearExportFrame: () => (api ? api.clearExportFrame() : undefined)
+  signOut: () => (api ? api.signOut() : undefined)
 };

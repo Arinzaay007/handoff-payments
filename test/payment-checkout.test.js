@@ -241,7 +241,7 @@ test('the payer cannot edit the recipient wallet: the pay modal has no wallet fi
   const inputs = [...doc.querySelectorAll('#payModal input')].map(input => input.id);
   assert.deepEqual(inputs, ['payRecipient', 'payAmount']);
   assert.equal(doc.querySelector('#quoteRecipientWallet'), null, 'the quote no longer renders a recipient wallet');
-  assert.equal(/wallet/i.test(doc.querySelector('#payModal [data-step="choose"] .recipient-proof').textContent), true, 'copy says the server resolves the wallet');
+  assert.match(doc.querySelector('#payModal [data-step="choose"] .recipient-proof').textContent, /recipient securely on the server/i, 'copy says the server resolves the recipient');
 });
 
 test('the browser never performs a transaction for a non-EVM route, even if the server offered one', async () => {
