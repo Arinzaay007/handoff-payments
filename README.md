@@ -26,6 +26,16 @@ test/                        # node:test suites (npm test)
 supabase/migrations/
   0001_handoff_mainnet_schema.sql
   0002_claim_handoff_profile.sql
+  0003_payment_execution_guards.sql   # NOT applied by this build; see "Database" below
+src/
+  paymentNetworks.js         # the eight executable EVM source networks, Solana/TON "not available yet", Monad
+  paymentPolicy.js           # 25 USDC per payment, 100 USDC rolling 24h, amount parsing
+  relayClient.js             # server-only Relay client (GET /chains, POST /quote/v2, GET /intents/status/v3)
+  executionPlan.js           # verifies protocol.v2 orders and builds the payer's transaction steps
+  paymentService.js          # quote, awaiting-signature, source hash, Relay refresh, receipts
+  paymentStatus.js           # receipt states and the public receipt shape
+  monadSettlement.js         # on-chain check of the Monad USDC transfer before anything is "Settled"
+test/payment-*.test.js       # payment execution, migration (PGlite), and checkout (JSDOM) suites
 contracts/UsernameRegistry.sol
 server.js
 package.json
@@ -49,10 +59,24 @@ server, build script, and `.env` loader all expect these nested paths.
 - A server-only Dynamic session boundary: the server validates a signed access token, the Dynamic Live environment ID, and `user:basic` before reading or writing a profile.
 - A secure profile-claim design: `POST /api/me/claim` accepts only `{ "username" }`. The server derives the recipient wallet only from an embedded EVM credential in the caller's verified Dynamic JWT, and rejects any `walletAddress` or other field. The browser cannot supply a recipient wallet.
 - A Supabase data model plus an atomic profile-claim migration.
-- Ten planned payment sources: Ethereum, Base, Arbitrum, Optimism, Polygon, BNB Chain, Avalanche, Solana, TON, and Celo → USDC on Monad.
-- A small Node server that proxies Relay's live `GET /chains` and `POST /quote/v2` APIs. The UI syncs availability from the real API.
-- A mainnet-oriented checkout that fixes settlement to Monad (`143`) and USDC, resolves the recipient server-side, and does **not** broadcast a transaction from this build.
+- **Eight executable source networks at launch:** Ethereum, Base, Arbitrum, Optimism, Polygon, BNB Chain, Avalanche, and Celo, paying USDC. Solana and TON are shown as **Not available yet** everywhere and cannot be selected. This build does not claim any other number of live networks.
+- **Real EVM execution.** For a route Relay returns with a verified `protocol.v2` order, the payer's own EVM wallet (`window.ethereum`) approves USDC if needed and signs the Relay deposit. The browser never holds a key and never broadcasts on Handoff's behalf. The server records the source transaction hash, polls Relay, and shows **Settled** only after it verifies a successful USDC `Transfer` to the server-resolved recipient on Monad for at least the minimum Relay promised.
+- **Quote-only safety.** A route without an executable, verified transaction is labelled **Quote preview only**. Its submit control is disabled, nothing is reserved against the daily cap, and no quote ever reads as paid, sent, or settled.
+- **Receipts:** Quote received → Awaiting payer signature → Transaction submitted → Source confirmed → Routing → Settled as USDC on Monad, or Failed / Refunded. States only move forward, and final states never change.
+- **Caps enforced on the server and in the database:** 25 USDC per payment and 100 USDC in any rolling 24 hours per payer wallet. The environment can lower these, never raise them.
+- A small Node server that proxies Relay's live `GET /chains` and `POST /quote/v2` APIs for the server only. The browser sees a sanitised per-network status at `GET /api/relay/routes`, never Relay's raw payload.
 - A minimal non-custodial `UsernameRegistry.sol` reference contract. It is not deployed or audited.
+
+## Payment execution
+
+Flow, all server-side except the wallet prompt:
+
+1. `POST /api/payments/quote` with `{ payer, sourceNetwork, recipientHandle, amount }`. Nothing else is accepted. The server resolves `@recipientHandle` to its one active Monad wallet, checks both caps, and asks Relay for a quote with `includeProtocolData: true`.
+2. The server verifies the quote before anything is signed: it recomputes `protocol.v2.orderId` with `@relay-protocol/settlement-sdk`, checks the input (origin USDC, exact amount), the output (Monad USDC, the server-resolved recipient, `minimumAmount`, `deadline`), and that the deposit pays the depository listed by `GET /chains` and commits to the verified order ID, the payer, and the exact amount. Any mismatch returns **Quote preview only**.
+3. The browser asks the payer's wallet to switch to the source chain, records the receipt as *Awaiting payer signature*, and then sends each validated step with `eth_sendTransaction` only after the payer approves. The deposit's hash is recorded with `POST /api/payments/:id/source-transaction`. A hash Relay does not list fails the payment.
+4. `GET /api/payments/:id` refreshes from Relay, at most every two seconds. A Relay `success` becomes **Settled** only after `src/monadSettlement.js` confirms the Monad receipt.
+
+Solana and TON are not available yet. Requests for them are refused before Relay is called.
 
 ## Run locally
 
@@ -63,7 +87,9 @@ npm start
 # http://localhost:3000
 ```
 
-Configure public and server-only values as described in [`docs/ENV_SETUP.md`](docs/ENV_SETUP.md). The checked-in UI works without a secret, but public username resolution and username claims deliberately fail closed until the server has Supabase credentials.
+Configure public and server-only values as described in [`docs/ENV_SETUP.md`](docs/ENV_SETUP.md). Live routing needs `RELAY_API_KEY` on the server, which Relay requires on `POST /quote/v2` from 2 October 2026. Without it, every payment shows a quote preview or a clear "not configured" message.
+
+Tests: `npm test` runs the suites, including an in-memory Postgres run of migrations 0001–0003 and a JSDOM checkout that drives the real `public/app.js` against a stubbed wallet. Nothing in the test run reaches Relay, Supabase, Dynamic, or Monad. The checked-in UI works without a secret, but public username resolution and username claims deliberately fail closed until the server has Supabase credentials.
 
 ## Deploy to Render
 
@@ -84,10 +110,10 @@ bundle is a build artifact and is not committed.
 ## What is still required before accepting real payments
 
 1. Add the Supabase secret/service key directly to the deployment host; never to the browser or chat.
-2. Apply `supabase/migrations/0002_claim_handoff_profile.sql`.
+2. Apply `supabase/migrations/0002_claim_handoff_profile.sql`, then `supabase/migrations/0003_payment_execution_guards.sql`. Run them in order in the Supabase SQL editor. The payment routes fail closed with "Payments are temporarily unavailable" until 0003 is applied.
 3. Add the exact deployed HTTPS origin to Dynamic CORS settings and test email + passkey sign-in. In the Dynamic dashboard, keep only email OTP and passkeys enabled for sign-in, and keep embedded EVM wallets enabled. Phone, SMS, WhatsApp, and social sign-in must stay disabled.
-4. Build the first controlled route: **Base USDC → Relay → USDC on Monad**. Add official Relay execution/approval handling; a quote is not a transfer.
-5. Persist payment requests, quote IDs, source/destination transaction hashes, status transitions, rate limits, and receipts.
+4. Set `RELAY_API_KEY` on the host (server-only). Make at least one small real payment on each live network before relying on it, and watch Relay's status for each.
+5. Add rate limits on the quote endpoint. Payment attempts, quote IDs, hashes, and status transitions are persisted; receipts are auditable from the database.
 6. Add monitoring, support flows, security review, and applicable legal/compliance checks before public launch.
 
 `npm audit` currently reports moderate transitive issues in the Dynamic SDK
@@ -100,4 +126,6 @@ dependency tree. This build is **not** launch-ready.
 - Unknown/unverified handles never receive or hold funds.
 - Every checkout resolves the final Monad recipient before a wallet action.
 - USDC on Monad is the sole MVP output.
-- No transaction settlement is claimed until destination confirmation is observed.
+- No transaction settlement is claimed until destination confirmation is observed on Monad.
+- Public browser APIs never return a recipient wallet address. The payer cannot choose or edit the recipient.
+- Handoff never holds keys. Every source transaction is signed and broadcast by the payer's own wallet.

@@ -2,8 +2,8 @@ const state = {
   selectedNetwork: null,
   requestType: 'fixed',
   balanceVisible: true,
-  liveChains: null,
-  quote: null,
+  routeStatus: null,
+  payment: { quote: null, payer: null, paymentId: null, receipt: null, pendingHash: null, busy: false, flow: 0 },
   recipient: null,
   auth: {
     ready: false,
@@ -24,18 +24,38 @@ const FRIENDLY_SETUP_FAILED = 'We could not finish setting up your account. Try 
 const FRIENDLY_NETWORK = 'Handoff could not be reached. Check your connection and try again.';
 const WALLET_PENDING_CODES = new Set(['EMBEDDED_WALLET_PENDING', 'EMBEDDED_WALLET_AMBIGUOUS']);
 
-const networks = [
-  { id: 1, key: 'ethereum', name: 'Ethereum', short: 'ETH', color: '#dfe7ff', type: 'evm' },
-  { id: 8453, key: 'base', name: 'Base', short: 'B', color: '#cee6ff', type: 'evm' },
-  { id: 42161, key: 'arbitrum', name: 'Arbitrum', short: 'A', color: '#d9e8ff', type: 'evm' },
-  { id: 10, key: 'optimism', name: 'Optimism', short: 'OP', color: '#ffd9dd', type: 'evm' },
-  { id: 137, key: 'polygon', name: 'Polygon', short: 'P', color: '#e8ddff', type: 'evm' },
-  { id: 56, key: 'bnb', name: 'BNB Chain', short: 'BNB', color: '#fff0b7', type: 'evm' },
-  { id: 43114, key: 'avalanche', name: 'Avalanche', short: 'AV', color: '#ffe0df', type: 'evm' },
-  { id: 792703809, key: 'solana', name: 'Solana', short: 'S', color: '#dff9e6', type: 'svm' },
-  { id: 224235520, key: 'ton', name: 'TON', short: 'T', color: '#d9edff', type: 'tonvm' },
-  { id: 42220, key: 'celo', name: 'Celo', short: 'CE', color: '#eaffbd', type: 'evm' }
+// Display styling only. The network list itself comes from the server (/api/public-config) and the
+// built-in list below mirrors src/paymentNetworks.js for the case where that config is not loaded.
+const NETWORK_STYLE = {
+  ethereum: { short: 'ETH', color: '#dfe7ff' },
+  base: { short: 'B', color: '#cee6ff' },
+  arbitrum: { short: 'A', color: '#d9e8ff' },
+  optimism: { short: 'OP', color: '#ffd9dd' },
+  polygon: { short: 'P', color: '#e8ddff' },
+  bnb: { short: 'BNB', color: '#fff0b7' },
+  avalanche: { short: 'AV', color: '#ffe0df' },
+  celo: { short: 'CE', color: '#eaffbd' },
+  solana: { short: 'S', color: '#dff9e6' },
+  ton: { short: 'T', color: '#d9edff' }
+};
+const FALLBACK_SOURCE_NETWORKS = [
+  { key: 'ethereum', name: 'Ethereum', chainId: 1, type: 'evm', status: 'live' },
+  { key: 'base', name: 'Base', chainId: 8453, type: 'evm', status: 'live' },
+  { key: 'arbitrum', name: 'Arbitrum', chainId: 42161, type: 'evm', status: 'live' },
+  { key: 'optimism', name: 'Optimism', chainId: 10, type: 'evm', status: 'live' },
+  { key: 'polygon', name: 'Polygon', chainId: 137, type: 'evm', status: 'live' },
+  { key: 'bnb', name: 'BNB Chain', chainId: 56, type: 'evm', status: 'live' },
+  { key: 'avalanche', name: 'Avalanche', chainId: 43114, type: 'evm', status: 'live' },
+  { key: 'celo', name: 'Celo', chainId: 42220, type: 'evm', status: 'live' },
+  { key: 'solana', name: 'Solana', chainId: 792703809, type: 'svm', status: 'not_available' },
+  { key: 'ton', name: 'TON', chainId: 224235520, type: 'tonvm', status: 'not_available' }
 ];
+let networks = FALLBACK_SOURCE_NETWORKS.map(item => ({ ...item, ...NETWORK_STYLE[item.key] }));
+
+const PAYMENT_POLL_MS = 3000;
+const PAYMENT_POLL_LIMIT_MS = 20 * 60 * 1000;
+const RECEIPT_TIMEOUT_MS = 3 * 60 * 1000;
+
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -123,65 +143,169 @@ function renderIdentity() {
     : '<div class="alias-entry"><div class="alias-platform">@</div><div class="alias-data"><b>One canonical username</b><span>Sign in to claim your payment identity.</span></div></div>';
 }
 
-function liveChain(chainId) {
-  if (!state.liveChains) return null;
-  return state.liveChains.find(chain => Number(chain.id) === Number(chainId));
-}
-function hasUsdc(chain) {
-  return chain?.erc20Currencies?.some(currency => currency.symbol === 'USDC' && currency.supportsBridging);
-}
-function networkAvailable(network) {
-  if (!state.liveChains) return true;
-  const chain = liveChain(network.id);
-  if (!chain) return false;
-  if (network.key === 'ton') return chain.currency?.supportsBridging === true;
-  return hasUsdc(chain);
-}
 function renderRails() {
-  $('#routesGrid').innerHTML = networks.map(network => `
-    <div class="rail ${networkAvailable(network) ? '' : 'unavailable'}" title="${network.name}">
-      <span class="rail-icon" style="background:${network.color}">${network.short}</span>
-      <span>${network.name}</span>${networkAvailable(network) ? '<i class="route-live"></i>' : ''}
-    </div>`).join('');
+  $('#routesGrid').innerHTML = networks.map(network => {
+    if (network.status !== 'live') {
+      return `<div class="rail unavailable" title="${network.name} is not available yet"><span class="rail-icon" style="background:${network.color}">${network.short}</span><span>${network.name}</span><em class="rail-status">Not available yet</em></div>`;
+    }
+    const selectable = networkSelectable(network);
+    return `<div class="rail ${selectable ? '' : 'unavailable'}" title="${network.name}"><span class="rail-icon" style="background:${network.color}">${network.short}</span><span>${network.name}</span>${selectable ? '<i class="route-live"></i>' : '<em class="rail-status">Route unavailable now</em>'}</div>`;
+  }).join('');
 }
 function renderNetworkPicker() {
-  $('#networkPicker').innerHTML = networks.map(network => `
-    <button class="network-option ${networkAvailable(network) ? '' : 'unavailable'}" data-network="${network.key}" ${networkAvailable(network) ? '' : 'disabled'}>
+  $('#networkPicker').innerHTML = networks.map(network => {
+    const selectable = networkSelectable(network);
+    const detail = network.status !== 'live' ? 'Not available yet' : selectable ? 'Pay in USDC' : 'Route unavailable now';
+    return `
+    <button class="network-option ${selectable ? '' : 'unavailable'}" data-network="${network.key}" ${selectable ? '' : 'disabled'}>
       <span class="rail-icon" style="background:${network.color}">${network.short}</span>
-      <span><b>${network.name}</b><small>${network.type === 'evm' ? 'USDC' : network.key === 'ton' ? 'TON → USDC' : 'USDC / SOL → USDC'}</small></span>
-    </button>`).join('');
+      <span><b>${network.name}</b><small>${detail}</small></span>
+    </button>`;
+  }).join('');
   $$('.network-option').forEach(button => button.addEventListener('click', () => selectNetwork(button.dataset.network)));
+}
+// Replaces the built-in network list with the server's list. Solana and TON stay "Not available yet".
+function applyPaymentConfig(payments) {
+  const list = Array.isArray(payments?.sourceNetworks) ? payments.sourceNetworks : null;
+  if (!list || list.length === 0) return;
+  networks = list.map(item => ({ ...item, ...(NETWORK_STYLE[item.key] || { short: String(item.name || '?').slice(0, 3).toUpperCase(), color: '#eeeeee' }) }));
+  renderRails();
+  renderNetworkPicker();
 }
 async function refreshRoutes(silent = false) {
   const status = $('#routeSyncText');
   status.textContent = 'Syncing routes…';
+  const live = networks.filter(network => network.status === 'live');
   try {
-    const response = await fetch('/api/relay/chains');
-    if (!response.ok) throw new Error('Relay did not respond');
+    const response = await fetch('/api/relay/routes');
+    if (!response.ok) throw new Error('Route status did not respond');
     const data = await response.json();
-    state.liveChains = data.chains || [];
+    state.routeStatus = Object.fromEntries((data.routes || []).map(route => [route.key, route.status]));
     renderRails();
     renderNetworkPicker();
-    const available = networks.filter(networkAvailable).length;
-    $('#railStatus').textContent = `${available} source networks are live in Relay right now. Final availability is confirmed by a live quote.`;
-    status.textContent = `${available}/10 routes checked live`;
-    if (!silent) toast(`Live Relay data checked: ${available} routes available.`);
+    const available = live.filter(networkSelectable).length;
+    $('#railStatus').textContent = `${available} of ${live.length} live source networks are open right now. Solana and TON are not available yet.`;
+    status.textContent = `${available}/${live.length} routes checked live`;
+    if (!silent) toast(`Live Relay data checked: ${available} of ${live.length} source routes open.`);
   } catch {
     status.textContent = 'Route check unavailable';
-    $('#railStatus').textContent = 'Route status will be checked before payment. Relay must return a valid live quote before anything can be signed.';
+    $('#railStatus').textContent = 'Route status is checked again when you request a quote. A live quote is required before anything can be signed.';
     if (!silent) toast('Could not reach Relay. Check again before paying.');
   }
+}
+
+function freshPaymentState() {
+  return { quote: null, payer: null, paymentId: null, receipt: null, pendingHash: null, busy: false, flow: (state.payment?.flow || 0) + 1 };
+}
+// True while a wallet prompt or a non-final receipt is still being tracked. Such a payment is not interrupted.
+function paymentInProgress() {
+  const receipt = state.payment?.receipt;
+  return Boolean(state.payment?.busy || state.payment?.pendingHash || (receipt && !TERMINAL_RECEIPT_STATES.has(receipt.status)));
+}
+function resetPaymentFlow() {
+  state.payment = freshPaymentState();
+}
+function setQuoteBadge(text, tone) {
+  const badge = $('#quoteBadge');
+  badge.textContent = text;
+  badge.dataset.tone = tone;
+}
+// mode: quote | preview | sign | busy | none. The submit button is the only way to reach a wallet prompt.
+function setQuoteButtons(mode, label = '') {
+  const quoteButton = $('#getQuote');
+  const signButton = $('#signPay');
+  quoteButton.hidden = mode === 'sign' || mode === 'busy' || mode === 'none';
+  quoteButton.disabled = mode === 'preview' || mode === 'busy';
+  if (!quoteButton.hidden && label) quoteButton.textContent = label;
+  signButton.hidden = !(mode === 'sign' || mode === 'busy');
+  signButton.disabled = mode === 'busy';
+  if (!signButton.hidden && label) signButton.textContent = label;
+}
+function amountInput() {
+  return String($('#payAmount').value || '').replace(/,/g, '').trim();
+}
+function shortId(id) {
+  return String(id || '').replace(/-/g, '').slice(0, 8).toUpperCase() || '—';
+}
+function shortHash(hash) {
+  return hash && /^0x[0-9a-fA-F]{64}$/.test(hash) ? `${hash.slice(0, 8)}…${hash.slice(-6)}` : '—';
+}
+function formatTime(iso) {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// Receipt steps, in the order the payment can move. The final label is shown only from the server's state.
+const RECEIPT_STEPS = [
+  ['quote_created', 'Quote received'],
+  ['awaiting_sender', 'Awaiting payer signature'],
+  ['transaction_submitted', 'Transaction submitted'],
+  ['source_confirmed', 'Source confirmed'],
+  ['routing', 'Routing'],
+  ['settled', 'Settlement on Monad']
+];
+const TERMINAL_RECEIPT_STATES = new Set(['settled', 'failed', 'refunded']);
+
+function renderReceipt(status) {
+  const list = $('#receiptSteps');
+  if (!status) {
+    list.hidden = true;
+    list.innerHTML = '';
+    return;
+  }
+  list.hidden = false;
+  const failed = status === 'failed' || status === 'refunded';
+  const index = RECEIPT_STEPS.findIndex(([key]) => key === status);
+  const steps = RECEIPT_STEPS.map(([key, label], position) => {
+    let cls = 'pending';
+    if (!failed && position < index) cls = 'done';
+    if (!failed && position === index) cls = status === 'settled' ? 'done' : 'active';
+    const text = key === 'settled' && status === 'settled' ? 'Settled as USDC on Monad' : label;
+    return `<li class="${cls}" data-receipt="${key}"><span></span>${text}</li>`;
+  });
+  if (failed) {
+    steps.push(`<li class="failed" data-receipt="${status}"><span></span>${status === 'failed' ? 'Failed' : 'Refunded to payer'}</li>`);
+  }
+  list.innerHTML = steps.join('');
+}
+
+function receiptMessage(receipt) {
+  switch (receipt.status) {
+    case 'quote_created': return 'Quote received. Review the route, then approve the transaction in your wallet. Nothing is submitted without your approval.';
+    case 'awaiting_sender': return 'Waiting for your wallet approval. Nothing has been submitted yet.';
+    case 'transaction_submitted': return `Transaction submitted from your wallet (${shortHash(receipt.sourceTxHash)}). Waiting for the source chain to confirm.`;
+    case 'source_confirmed': return 'Source transaction confirmed. Routing to Monad.';
+    case 'routing': return 'Routing to Monad. Handoff shows “Settled” only after Monad confirms the USDC transfer.';
+    case 'settled': return `Settled as USDC on Monad, verified on-chain (${shortHash(receipt.destinationTxHash)}).`;
+    case 'failed': return receipt.failure?.message || 'This payment could not be completed.';
+    case 'refunded': return 'Relay refunded this payment. Check your source wallet.';
+    default: return '';
+  }
+}
+
+function networkSelectable(network) {
+  if (!network || network.status !== 'live') return false;
+  // Until the server has checked routes, a live network stays selectable; the quote itself is the real check.
+  if (!state.routeStatus) return true;
+  return state.routeStatus[network.key] !== 'unavailable';
+}
+
+function renderPaymentReceipt(receipt) {
+  state.payment.receipt = receipt;
+  renderReceipt(receipt.status);
+  const tone = receipt.status === 'settled' ? 'settled' : (receipt.status === 'failed' || receipt.status === 'refunded') ? 'failed' : 'live';
+  setQuoteBadge(receipt.label, tone);
+  $('#quoteState').textContent = receiptMessage(receipt);
+  if (TERMINAL_RECEIPT_STATES.has(receipt.status)) setQuoteButtons('none');
+  else setQuoteButtons('busy', receipt.status === 'awaiting_sender' ? 'Waiting for wallet approval…' : 'Payment in progress…');
 }
 
 function showPayStep(name) {
   $$('.modal-step', $('#payModal')).forEach(step => step.classList.toggle('active', step.dataset.step === name));
 }
-function showAuthStep(name) {
-  $$('.modal-step', $('#authModal')).forEach(step => step.classList.toggle('active', step.dataset.authStep === name));
-}
 function openPay() {
   state.selectedNetwork = null;
-  state.quote = null;
+  resetPaymentFlow();
   state.recipient = null;
   $('#payRecipient').value = '';
   renderRecipientProof();
@@ -195,7 +319,7 @@ function renderRecipientProof(message) {
     proof.innerHTML = `<span class="avatar gradient-avatar">${initial(recipient.displayName || recipient.username)}</span><span><b>${recipient.displayName || recipient.username} · @${recipient.username}</b><small>Registered Handoff username · receives USDC on Monad</small></span>`;
     return;
   }
-  proof.innerHTML = `<span class="avatar gradient-avatar">@</span><span><b>${message || 'Enter a Handoff username'}</b><small>We will resolve its active Monad wallet on the server.</small></span>`;
+  proof.innerHTML = `<span class="avatar gradient-avatar">@</span><span><b>${message || 'Enter a Handoff username'}</b><small>Handoff resolves the recipient on the server. You never enter a wallet address.</small></span>`;
 }
 async function resolveRecipient() {
   const handle = $('#payRecipient').value.trim();
@@ -222,23 +346,26 @@ async function resolveRecipient() {
 function selectNetwork(key) {
   const network = networks.find(item => item.key === key);
   if (!network || !state.recipient) return;
+  if (network.status !== 'live') return toast(`${network.name} is not available yet.`);
+  if (!networkSelectable(network)) return toast(`${network.name} has no live USDC route right now.`);
+  resetPaymentFlow();
   state.selectedNetwork = network;
   prepareQuote(network);
   showPayStep('quote');
 }
 function prepareQuote(network) {
-  const amount = Number($('#payAmount').value || 25).toFixed(2);
-  $('#quoteSend').textContent = network.key === 'ton' ? `${amount} TON` : `${amount} USDC`;
+  const amount = Number(amountInput() || 25);
+  $('#quoteSend').textContent = `${Number.isFinite(amount) ? amount.toFixed(2) : '—'} USDC`;
   $('#quoteSource').textContent = `on ${network.name}`;
   $('#quoteReceive').textContent = '— USDC';
   $('#quoteRoute').textContent = `Relay · ${network.name} → Monad`;
   $('#quoteRecipientName').textContent = `${state.recipient?.displayName || state.recipient?.username || 'Recipient'} receives`;
-  $('#quoteRecipientWallet').textContent = shortAddress(state.recipient?.recipient);
-  $('#paymentId').textContent = makeId();
-  $('#quoteState').textContent = network.type === 'evm'
-    ? 'Connect your EVM wallet to request a live mainnet quote. No payment will be sent until you review it.'
-    : `${network.name} uses its own wallet adapter. Add the official Relay adapter and a supported wallet connector to execute this route.`;
-  $('#getQuote').textContent = network.type === 'evm' ? 'Connect wallet & get live quote ↗' : `Connect ${network.key === 'solana' ? 'Solana wallet' : 'TON wallet'} ↗`;
+  $('#quoteRecipientHandle').textContent = state.recipient ? `@${state.recipient.username}` : '—';
+  $('#paymentId').textContent = '—';
+  renderReceipt(null);
+  setQuoteBadge('Quote not requested yet', 'neutral');
+  $('#quoteState').textContent = 'Connect your wallet to request a live quote. Nothing is signed or submitted until you approve it in your wallet.';
+  setQuoteButtons('quote', 'Connect wallet & get live quote ↗');
 }
 async function ethereumAccount() {
   if (!window.ethereum) throw new Error('No EVM wallet found. Open Handoff in MetaMask, Rabby, or another EVM wallet browser.');
@@ -246,58 +373,221 @@ async function ethereumAccount() {
   if (!accounts?.[0]) throw new Error('No wallet account selected.');
   return accounts[0];
 }
-function fromAmount(amount, decimals) {
-  const clean = String(amount).trim();
-  if (!/^\d+(\.\d{0,6})?$/.test(clean)) throw new Error('Enter a valid payment amount.');
-  const [whole, fraction = ''] = clean.split('.');
-  return (BigInt(whole) * (10n ** BigInt(decimals)) + BigInt((fraction + '0'.repeat(decimals)).slice(0, decimals))).toString();
+
+// Step 1 of checkout. The server validates the route and, if Relay returns an executable transaction
+// plan, reserves the attempt. Nothing is signed here.
+function applyQuote(data) {
+  const receive = data.quote?.receive;
+  const eta = data.quote?.timeEstimateSeconds ? ` Estimated route time: ${data.quote.timeEstimateSeconds}s.` : '';
+  $('#quoteSend').textContent = `${data.quote?.send?.amount || '—'} USDC`;
+  $('#quoteReceive').textContent = receive?.expected ? `${receive.expected} USDC` : receive?.minimum ? `at least ${receive.minimum} USDC` : '— USDC';
+  if (!data.executable) {
+    state.payment.quote = null;
+    $('#paymentId').textContent = '—';
+    setQuoteBadge('Quote preview only', 'preview');
+    $('#quoteState').textContent = `${data.message || 'Quote preview only.'}${eta}`;
+    renderReceipt(null);
+    setQuoteButtons('preview', 'Quote preview only — no transaction to sign');
+    return;
+  }
+  state.payment.quote = data;
+  state.payment.paymentId = data.paymentId;
+  $('#paymentId').textContent = shortId(data.paymentId);
+  setQuoteBadge('Quote received', 'live');
+  $('#quoteState').textContent = `Quote received.${eta} Quote expires at ${formatTime(data.expiresAt)}. Review the route, then sign in your wallet.`;
+  renderReceipt('quote_created');
+  setQuoteButtons('sign', 'Sign & pay in wallet ↗');
 }
+
 async function requestQuote() {
   const network = state.selectedNetwork;
   const recipient = state.recipient;
-  if (!network || !recipient?.recipient) return toast('Verify a recipient before requesting a quote.');
-  if (network.type !== 'evm') {
-    toast(`${network.name} route UI is ready; add the official Relay ${network.key === 'solana' ? 'SVM' : 'TON'} adapter and wallet connector to execute it.`);
+  if (!network || !recipient) return toast('Verify a recipient before requesting a quote.');
+  if (!networkSelectable(network)) return toast(`${network.name} is not available right now.`);
+  const flow = state.payment.flow;
+  setQuoteButtons('busy', 'Connecting wallet…');
+  try {
+    const payer = await ethereumAccount();
+    if (flow !== state.payment.flow) return;
+    setQuoteButtons('busy', 'Getting live quote…');
+    const response = await fetch('/api/payments/quote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payer, sourceNetwork: network.key, recipientHandle: recipient.username, amount: amountInput() })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || 'Unable to get a route.');
+    if (flow !== state.payment.flow) return;
+    state.payment.payer = String(payer).toLowerCase();
+    applyQuote(data);
+    toast(data.executable ? 'Live quote received. Nothing has been signed yet.' : 'Quote preview only. No transaction is available for this route.');
+  } catch (error) {
+    if (flow !== state.payment.flow) return;
+    $('#quoteState').textContent = error.message;
+    setQuoteButtons('quote', 'Connect wallet & get live quote ↗');
+    toast(error.message);
+  }
+}
+
+// --- Step 2: the payer signs and broadcasts through their own wallet -----------------------------
+
+async function postPayment(path, body) {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {})
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.message || 'Handoff could not record this payment step.');
+    error.code = data.code || null;
+    throw error;
+  }
+  return data;
+}
+
+async function switchToChain(provider, chainId, networkName) {
+  const hexChain = `0x${Number(chainId).toString(16)}`;
+  try {
+    await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: hexChain }] });
+  } catch (error) {
+    if (error?.code === 4902) throw new Error(`Add ${networkName} to your wallet, then try again.`);
+    throw error;
+  }
+  const current = await provider.request({ method: 'eth_chainId' });
+  if (String(current).toLowerCase() !== hexChain) throw new Error(`Switch your wallet to ${networkName}, then try again.`);
+}
+
+async function waitForApprovalReceipt(provider, hash, flow) {
+  const startedAt = Date.now();
+  while (flow === state.payment.flow) {
+    const receipt = await provider.request({ method: 'eth_getTransactionReceipt', params: [hash] });
+    if (receipt) {
+      if (receipt.status === '0x1') return;
+      throw new Error('The token approval failed on-chain. Nothing was deposited.');
+    }
+    if (Date.now() - startedAt > RECEIPT_TIMEOUT_MS) throw new Error('The token approval is still pending. Check your wallet, then try again.');
+    await delay(3000);
+  }
+}
+
+async function pollPayment(paymentId, flow) {
+  const startedAt = Date.now();
+  while (flow === state.payment.flow && Date.now() - startedAt < PAYMENT_POLL_LIMIT_MS) {
+    try {
+      const response = await fetch(`/api/payments/${encodeURIComponent(paymentId)}`);
+      const receipt = await response.json();
+      if (response.ok && flow === state.payment.flow) {
+        renderPaymentReceipt(receipt);
+        if (TERMINAL_RECEIPT_STATES.has(receipt.status)) return;
+      }
+    } catch {
+      // Transient network errors keep polling. The last confirmed state stays on screen.
+    }
+    await delay(PAYMENT_POLL_MS);
+  }
+}
+
+async function recordPendingHash(flow) {
+  const hash = state.payment.pendingHash;
+  const paymentId = state.payment.paymentId;
+  const receipt = await postPayment(`/api/payments/${paymentId}/source-transaction`, { txHash: hash });
+  if (flow !== state.payment.flow) return;
+  state.payment.pendingHash = null;
+  renderPaymentReceipt(receipt);
+  pollPayment(paymentId, flow);
+}
+
+function expireQuote(message) {
+  state.payment.quote = null;
+  renderReceipt(null);
+  setQuoteBadge('Quote expired', 'failed');
+  $('#quoteState').textContent = message;
+  setQuoteButtons('quote', 'Get a new quote ↗');
+}
+
+async function signAndPay() {
+  const data = state.payment.quote;
+  if (!data?.executable || !data.paymentId) return toast('Get a live quote before signing.');
+  if (state.payment.busy) return;
+  const flow = state.payment.flow;
+  const network = networks.find(item => item.chainId === data.steps[0]?.chainId);
+  const networkName = network?.name || 'the source network';
+
+  if (state.payment.pendingHash) {
+    // The wallet already submitted a transaction. Record that hash before doing anything else.
+    state.payment.busy = true;
+    setQuoteButtons('busy', 'Recording transaction…');
+    try {
+      await recordPendingHash(flow);
+    } catch (error) {
+      if (flow === state.payment.flow) {
+        $('#quoteState').textContent = `Your wallet submitted transaction ${shortHash(state.payment.pendingHash)}, but Handoff could not record it yet. Try again.`;
+        setQuoteButtons('sign', 'Record submitted transaction ↗');
+        toast(error.message);
+      }
+    } finally {
+      if (flow === state.payment.flow) state.payment.busy = false;
+    }
     return;
   }
-  const button = $('#getQuote');
-  button.disabled = true;
-  button.textContent = 'Connecting wallet…';
+
+  if (Date.parse(data.expiresAt) <= Date.now()) {
+    return expireQuote('This quote has expired. Get a new quote to continue.');
+  }
+
+  state.payment.busy = true;
+  setQuoteButtons('busy', 'Waiting for your wallet…');
+  let submitted = false;
   try {
-    const user = await ethereumAccount();
-    const origin = liveChain(network.id);
-    const destination = liveChain(143);
-    if (!origin || !destination) throw new Error('Live Relay chain data is not loaded yet. Refresh payment rails and try again.');
-    const originUsdc = origin.erc20Currencies?.find(currency => currency.symbol === 'USDC' && currency.supportsBridging);
-    const destinationUsdc = destination.erc20Currencies?.find(currency => currency.symbol === 'USDC' && currency.supportsBridging);
-    if (!originUsdc || !destinationUsdc) throw new Error(`USDC routing is unavailable for ${network.name} right now.`);
-    button.textContent = 'Getting live quote…';
-    const response = await fetch('/api/relay/quote', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        user,
-        originChainId: network.id,
-        originCurrency: originUsdc.address,
-        destinationChainId: 143,
-        destinationCurrency: destinationUsdc.address,
-        recipientHandle: recipient.username,
-        amount: fromAmount($('#payAmount').value || '25', 6),
-        tradeType: 'EXACT_INPUT'
-      })
-    });
-    const quote = await response.json();
-    if (!response.ok) throw new Error(quote.message || 'Unable to get a route.');
-    state.quote = quote;
-    const out = quote.details?.currencyOut;
-    $('#quoteReceive').textContent = out ? `${Number(out.amountFormatted).toFixed(2)} USDC` : 'Live quote ready';
-    $('#quoteState').innerHTML = `<strong>Live quote ready.</strong> ${quote.details?.timeEstimate ? `Estimated route time: ${quote.details.timeEstimate}s.` : ''} Review the final wallet steps before executing. This preview intentionally does not broadcast a mainnet transaction.`;
-    button.textContent = 'Live quote ready — review in wallet';
-    toast('Live mainnet quote received. No transaction has been sent.');
+    const provider = window.ethereum;
+    if (!provider) throw new Error('No EVM wallet found. Open Handoff in an EVM wallet browser.');
+    const accounts = await provider.request({ method: 'eth_accounts' });
+    const payer = String(accounts?.[0] || '').toLowerCase();
+    if (!payer || payer !== state.payment.payer) {
+      throw new Error('Switch your wallet to the account that requested this quote, then try again.');
+    }
+    await switchToChain(provider, data.steps[0].chainId, networkName);
+    const awaiting = await postPayment(`/api/payments/${data.paymentId}/awaiting-signature`);
+    if (flow !== state.payment.flow) return;
+    renderPaymentReceipt(awaiting);
+
+    for (const step of data.steps) {
+      if (flow !== state.payment.flow) return;
+      if (String(step.from).toLowerCase() !== payer) throw new Error('The wallet account changed. Get a new quote.');
+      const hash = await provider.request({
+        method: 'eth_sendTransaction',
+        params: [{ from: step.from, to: step.to, data: step.data, value: step.value, chainId: `0x${Number(step.chainId).toString(16)}` }]
+      });
+      if (step.role === 'approve') {
+        setQuoteButtons('busy', 'Confirming token approval…');
+        await waitForApprovalReceipt(provider, hash, flow);
+        continue;
+      }
+      // The source (deposit) transaction. Record its hash on the server before showing anything further.
+      state.payment.pendingHash = hash;
+      submitted = true;
+      await recordPendingHash(flow);
+    }
   } catch (error) {
-    $('#quoteState').textContent = error.message;
-    toast(error.message);
+    if (flow !== state.payment.flow) return;
+    if (error?.code === 4001) {
+      // The payer declined. Nothing was broadcast by this step.
+      $('#quoteState').textContent = 'Signature declined in your wallet. Nothing was submitted.';
+      setQuoteButtons('sign', 'Sign & pay in wallet ↗');
+      return;
+    }
+    const message = error?.message || 'The wallet could not submit this transaction.';
+    if (state.payment.pendingHash) {
+      $('#quoteState').textContent = `Your wallet submitted transaction ${shortHash(state.payment.pendingHash)}, but Handoff could not record it yet. Try again.`;
+      setQuoteButtons('sign', 'Record submitted transaction ↗');
+    } else {
+      $('#quoteState').textContent = message;
+      setQuoteButtons(submitted ? 'busy' : 'sign', 'Sign & pay in wallet ↗');
+    }
+    toast(message);
   } finally {
-    button.disabled = false;
-    if (!state.quote && button.textContent !== 'Connect wallet & get live quote ↗') button.textContent = 'Connect wallet & get live quote ↗';
+    if (flow === state.payment.flow) state.payment.busy = false;
   }
 }
 
@@ -532,30 +822,13 @@ function openAuthFlow() {
   openModal('authModal');
 }
 
-function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    if (window.HandoffDynamic) return resolve();
-    const existing = document.querySelector(`script[data-handoff-sdk="${src}"]`);
-    if (existing) {
-      existing.addEventListener('load', resolve, { once: true });
-      existing.addEventListener('error', () => reject(new Error('Unable to load secure sign-in.')), { once: true });
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = src;
-    script.async = true;
-    script.dataset.handoffSdk = src;
-    script.onload = resolve;
-    script.onerror = () => reject(new Error('Unable to load secure sign-in.'));
-    document.head.appendChild(script);
-  });
-}
 
 async function initialiseDynamic() {
   try {
     const response = await fetch('/api/public-config');
     if (!response.ok) throw new Error('Unable to load public sign-in configuration.');
     const runtime = await response.json();
+    applyPaymentConfig(runtime.payments);
     if (!runtime.dynamic?.enabled) {
       setAuthStatus('Secure sign-in is not configured for this deployment yet.');
       return;
@@ -634,9 +907,18 @@ function bindEvents() {
     catch (error) { toast(error.message); }
   });
   $('#backToChoose').addEventListener('click', () => showPayStep('choose'));
-  $('#backToNetworks').addEventListener('click', () => showPayStep('network'));
+  $('#backToNetworks').addEventListener('click', () => {
+    if (paymentInProgress()) return toast('This payment is still in progress. Its receipt updates here.');
+    resetPaymentFlow();
+    showPayStep('network');
+  });
   $('#getQuote').addEventListener('click', requestQuote);
-  $('#payAmount').addEventListener('input', () => { if (state.selectedNetwork) prepareQuote(state.selectedNetwork); });
+  $('#signPay').addEventListener('click', signAndPay);
+  $('#payAmount').addEventListener('input', () => {
+    if (!state.selectedNetwork || paymentInProgress()) return;
+    resetPaymentFlow();
+    prepareQuote(state.selectedNetwork);
+  });
   $$('.segmented button').forEach(button => button.addEventListener('click', () => {
     $$('.segmented button').forEach(item => item.classList.toggle('active', item === button));
     state.requestType = button.dataset.requestType;

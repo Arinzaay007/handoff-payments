@@ -71,3 +71,24 @@ body.public-mode .public-card .profile-avatar { margin:0 auto 14px; }
 .public-notfound h1 { font-family:var(--sans); font-weight:700; font-size:26px; color:#f2fff1; margin:0; }
 .public-notfound p { color:#9bb29e; font-size:14px; line-height:1.6; margin:0 0 8px; }
 body.public-mode .public-notfound { display:flex; }
+
+/* Payment execution: rail status, disabled networks, quote badges, and receipt steps. */
+[hidden] { display: none !important; }
+.rail-status { font-style: normal; font-size: 9px; color: #8fa595; margin-left: auto; white-space: nowrap; }
+.rail.unavailable .rail-status { color: #9bb29e; }
+.network-option.unavailable, .network-option:disabled { opacity: .48; cursor: not-allowed; }
+.network-option:disabled:hover { border-color: inherit; background: inherit; }
+.quote-badge { display: inline-block; margin: 0 0 10px; padding: 4px 9px; border-radius: 100px; font-size: 10px; font-weight: 700; letter-spacing: .02em; background: #1d2b23; color: #b7c9bb; border: 1px solid #2f4a39; }
+.quote-badge[data-tone="live"] { background: #1f3d26; color: #d8ff9c; border-color: #3f7a4c; }
+.quote-badge[data-tone="preview"] { background: #3a2f16; color: #ffe2a6; border-color: #7a6130; }
+.quote-badge[data-tone="settled"] { background: #d9ff8c; color: #14301b; border-color: #d9ff8c; }
+.quote-badge[data-tone="failed"] { background: #3d1d1d; color: #ffc4c4; border-color: #7a3a3a; }
+.receipt-steps { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 7px; }
+.receipt-steps li { display: flex; align-items: center; gap: 9px; font-size: 11px; color: #6f8475; }
+.receipt-steps li span { width: 9px; height: 9px; border-radius: 50%; border: 1px solid #3a5a44; flex: none; }
+.receipt-steps li.done { color: #d5eed8; }
+.receipt-steps li.done span { background: #8fe07a; border-color: #8fe07a; }
+.receipt-steps li.active { color: #f0ffe0; font-weight: 700; }
+.receipt-steps li.active span { background: #d9ff8c; border-color: #d9ff8c; box-shadow: 0 0 10px #d9ff8c; }
+.receipt-steps li.failed { color: #ffc4c4; font-weight: 700; }
+.receipt-steps li.failed span { background: #ff8a8a; border-color: #ff8a8a; }

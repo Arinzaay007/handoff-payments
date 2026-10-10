@@ -80,19 +80,31 @@ test('the payer checkout still uses window.ethereum (separate signing flow, pres
   assert.match(appJs, /eth_requestAccounts/);
 });
 
-test('Monad USDC settlement, Relay routing, and the ten planned networks are preserved', () => {
-  assert.match(appJs, /destinationChainId: 143/);
-  assert.match(read('src/profileService.js') + read('src/usernameService.js'), /settlement: \{ chainId: 143, asset: 'USDC' \}/);
-  assert.match(serverJs, /hostname: 'api\.relay\.link'/);
-  assert.match(serverJs, /Number\(quote\.destinationChainId\) !== 143/);
-  const networksBlock = appJs.slice(appJs.indexOf('const networks = ['), appJs.indexOf('];', appJs.indexOf('const networks = [')));
-  assert.equal((networksBlock.match(/key: '/g) || []).length, 10);
+test('Monad USDC settlement is decided on the server, and Relay is never called from the browser', () => {
+  const payments = read('src/paymentService.js');
+  assert.match(payments, /destinationChainId: MONAD\.chainId/);
+  assert.match(payments, /destinationCurrency: MONAD\.usdcAddress/);
+  assert.match(payments, /includeProtocolData: true/);
+  assert.match(read('src/relayClient.js'), /https:\/\/api\.relay\.link/);
+  assert.equal(appJs.includes('api.relay.link'), false, 'the browser must not address Relay directly');
+  assert.equal(appJs.includes('destinationChainId'), false, 'the browser does not choose the destination');
+  assert.match(read('src/paymentNetworks.js'), /chainId: 143/);
 });
 
-test('mainnet caps and the Supabase server-only boundary are preserved', () => {
-  assert.match(read('src/config.js'), /MAX_MAINNET_USDC_MINOR/);
-  assert.match(read('src/config.js'), /25000000/);
-  assert.match(read('src/config.js'), /100000000/);
-  assert.match(read('src/config.js'), /publicRuntimeConfig/);
-  assert.equal(/serviceRoleKey|SUPABASE_SECRET_KEY/.test(read('src/config.js').split('publicRuntimeConfig')[1] || ''), false);
+test('the browser network list is the launch list: eight live EVM networks, Solana and TON not available yet', () => {
+  const fallback = appJs.slice(appJs.indexOf('const FALLBACK_SOURCE_NETWORKS = ['), appJs.indexOf('];', appJs.indexOf('const FALLBACK_SOURCE_NETWORKS = [')));
+  assert.equal((fallback.match(/status: 'live'/g) || []).length, 8);
+  assert.equal((fallback.match(/status: 'not_available'/g) || []).length, 2);
+  assert.match(fallback, /key: 'solana'[^}]*status: 'not_available'/);
+  assert.match(fallback, /key: 'ton'[^}]*status: 'not_available'/);
+  assert.equal(/10 NETWORKS|ten planned|Ten planned/i.test(indexHtml + appJs + read('README.md')), false, 'no ten-network claim anywhere');
+});
+
+test('mainnet caps are enforced at launch ceilings and the Supabase server-only boundary is preserved', () => {
+  const config = read('src/config.js');
+  assert.match(config, /MAX_MAINNET_USDC_MINOR/);
+  assert.match(config, /capMinor\(required\('MAX_MAINNET_USDC_MINOR'\), 25_000_000n\)/);
+  assert.match(config, /capMinor\(required\('MAX_DAILY_MAINNET_USDC_MINOR'\), 100_000_000n\)/);
+  assert.match(config, /publicRuntimeConfig/);
+  assert.equal(/serviceRoleKey|SUPABASE_SECRET_KEY|RELAY_API_KEY/.test(config.split('publicRuntimeConfig')[1] || ''), false);
 });
