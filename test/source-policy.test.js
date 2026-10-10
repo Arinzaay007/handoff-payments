@@ -56,6 +56,18 @@ test('the owner identity UI never renders an address, settings panel, or export 
   assert.match(indexHtml, /Share my payment page/);
 });
 
+test('the recipient dashboard keeps blockchain implementation language out of its default shell', () => {
+  const recipientShell = indexHtml.slice(indexHtml.indexOf('<div class="app-shell">'), indexHtml.indexOf('<section class="public-page"'));
+  for (const infrastructureWord of ['Monad', 'USDC', 'EVM', 'Relay', 'wallet', 'blockchain', 'chain', 'non-custodial']) {
+    assert.equal(recipientShell.toLowerCase().includes(infrastructureWord.toLowerCase()), false, `${infrastructureWord} is not recipient-facing dashboard copy`);
+  }
+  assert.match(recipientShell, /Share your payment page/);
+  assert.match(recipientShell, /Available balance/);
+  for (const unfinished of ['generateRequest', 'sharePreview', 'requestAmount', 'requestNote', 'requestExpiry']) {
+    assert.equal(recipientShell.includes(unfinished), false, `${unfinished} is not a fake recipient request feature`);
+  }
+});
+
 test('the browser profile response excludes the recipient wallet while the server retains it only for verified portfolio reads', () => {
   assert.match(profileService, /function publicProfileResponse/);
   assert.doesNotMatch(profileService.slice(profileService.indexOf('function publicProfileResponse'), profileService.indexOf('// Server-internal')), /wallet/);

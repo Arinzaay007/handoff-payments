@@ -1,4 +1,4 @@
-// Origin-derived canonical links, zero hardcoded payment domains, disabled request links,
+// Origin-derived canonical links, a usable recipient share action instead of unfinished request links,
 // the public payment-page UI, and the migration's table-alias fix.
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -33,17 +33,16 @@ test('no file in the repository mentions the retired hardcoded payment domain', 
 test('canonical payment links are derived from the page origin, not a constant domain', () => {
   assert.match(appSource, /new URL\(`\/@\$\{username\}`, window\.location\.origin\)\.toString\(\)/);
   const copyCalls = appSource.match(/canonicalPaymentUrl\(/g) || [];
-  // definition + identity link + copyPublicLink + shareProfile
-  assert.equal(copyCalls.length, 4);
+  // The identity card and all three recipient share actions derive the same current-origin URL.
+  assert.ok(copyCalls.length >= 6);
 });
 
-test('the request-link buttons are disabled and never claim a link was copied', () => {
-  const generate = html.match(/<button[^>]*id="generateRequest"[^>]*>/)[0];
-  const share = html.match(/<button[^>]*id="sharePreview"[^>]*>/)[0];
-  assert.match(generate, /\bdisabled\b/);
-  assert.match(share, /\bdisabled\b/);
-  assert.equal(/payment link copied|Persisted payment links are not enabled/i.test(appSource), false);
-  assert.equal(appSource.includes('createRequestPreview'), false);
+test('the recipient app removes the unfinished request composer and offers one real payment-page share action', () => {
+  for (const removed of ['generateRequest', 'sharePreview', 'requestAmount', 'requestNote', 'requestExpiry', 'payment links coming soon', 'share link coming soon']) {
+    assert.equal(html.includes(removed) || appSource.includes(removed), false, `${removed} is not presented as a recipient feature`);
+  }
+  assert.match(html, /id="sharePaidPage"/);
+  assert.match(appSource, /Payment page copied/);
   assert.equal(html.includes('id="requestModal"'), false, 'the fake link modal is removed');
 });
 
@@ -174,11 +173,19 @@ test('Share my payment page copies the real /@username URL on the current origin
   assert.equal(doc.querySelector('#toast').textContent, 'https://pay.example.test/@ada');
 });
 
-test('request-link buttons are disabled in the rendered page', async () => {
-  const { doc } = await load({ url: 'https://pay.example.test/' });
-
-  assert.equal(doc.querySelector('#generateRequest').disabled, true);
-  assert.equal(doc.querySelector('#sharePreview').disabled, true);
-  assert.equal(doc.querySelector('#generateRequest').textContent.trim(), 'Payment links coming soon');
+test('the rendered recipient page keeps payment-page sharing simple and enables it after sign-in', async () => {
+  const { doc, dyn } = await load({
+    url: 'https://pay.example.test/',
+    token: 'test-access-token',
+    routes: { 'GET /api/me': () => ({ profile: { id: 'p1', username: 'ada', displayName: 'Ada' } }) }
+  });
+  assert.equal(doc.querySelector('#sharePaidPage').disabled, true, 'there is nothing to share before a name is claimed');
+  await dyn.onChange({ signedIn: true });
+  await settle();
+  assert.equal(doc.querySelector('#sharePaidPage').disabled, false);
+  assert.equal(doc.querySelector('#sharePageLink').textContent, 'pay.example.test/@ada');
+  doc.querySelector('#sharePaidPage').click();
+  await settle();
+  assert.equal(doc.querySelector('#toast').textContent, 'https://pay.example.test/@ada');
   assert.equal(doc.querySelector('#requestModal'), null);
 });

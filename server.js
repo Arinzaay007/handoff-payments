@@ -121,7 +121,7 @@ async function servePaymentPage(req, res, rawHandle) {
   }
   // profile.username is validated to [a-z0-9_]{3,24}, so it is safe to place in the markup.
   const shell = (await readShell())
-    .replace('<title>Handoff — Omnichain payment identity</title>', `<title>Pay @${profile.username} on Handoff</title>`)
+    .replace('<title>Handoff — Simple payments</title>', `<title>Pay @${profile.username} on Handoff</title>`)
     .replace('<body>', `<body class="public-mode" data-public-handle="${profile.username}">`);
   return send(res, 200, req.method === 'HEAD' ? '' : shell, 'text/html; charset=utf-8');
 }

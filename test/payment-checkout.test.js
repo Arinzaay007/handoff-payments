@@ -233,7 +233,7 @@ test('the network list keeps Solana and TON visibly unavailable and offers exact
     assert.match(option.textContent, /Not available yet/);
   }
   assert.doesNotMatch(doc.body.textContent, /\b10 (live )?networks\b/i);
-  assert.match(doc.querySelector('.signal-strip').textContent, /8 EVM SOURCE NETWORKS/);
+  assert.doesNotMatch(doc.querySelector('.signal-strip').textContent, /EVM|network|Monad|USDC/i, 'recipient dashboard chrome keeps route implementation details out of view');
 });
 
 test('the payer cannot edit the recipient wallet: the pay modal has no wallet field', async () => {

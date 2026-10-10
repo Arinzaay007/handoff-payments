@@ -1,6 +1,5 @@
 const state = {
   selectedNetwork: null,
-  requestType: 'fixed',
   balanceVisible: true,
   routeStatus: null,
   payment: { quote: null, payer: null, paymentId: null, receipt: null, pendingHash: null, busy: false, flow: 0 },
@@ -99,10 +98,10 @@ function goTo(page) {
   $(`#${page}Page`).classList.add('active');
   $$('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
   const labels = {
-    overview: ['OMNICHAIN PAYMENTS', 'One handle. Every chain.'],
-    'get-paid': ['PAYMENT REQUESTS', 'Get paid your way'],
-    activity: ['PAYMENT HISTORY', 'Clear from source to settlement'],
-    identity: ['YOUR PAYMENT IDENTITY', 'Your name is how you get paid']
+    overview: ['PAYMENTS', 'Get paid, simply.'],
+    'get-paid': ['GET PAID', 'Share your payment page'],
+    activity: ['PAYMENT ACTIVITY', 'Your payment activity'],
+    identity: ['YOUR PAYMENT NAME', 'Your name is how you get paid']
   };
   $('#pageEyebrow').textContent = labels[page][0];
   $('#pageTitle').textContent = labels[page][1];
@@ -111,8 +110,8 @@ function goTo(page) {
 }
 
 function renderActivity() {
-  const blank = `<div class="activity-item"><div class="activity-icon in">⌁</div><div class="activity-main"><b>No confirmed payments yet</b><span>New activity appears here after source confirmation and Monad settlement.</span></div></div>`;
-  const syncing = `<div class="activity-item"><div class="activity-icon in">⌁</div><div class="activity-main"><b>Syncing activity…</b><span>Verified recipient receipts are loading.</span></div></div>`;
+  const blank = `<div class="activity-item"><div class="activity-icon in">⌁</div><div class="activity-main"><b>No payments yet</b><span>Completed payments will appear here.</span></div></div>`;
+  const syncing = `<div class="activity-item"><div class="activity-icon in">⌁</div><div class="activity-main"><b>Checking for payments…</b><span>Your activity is loading securely.</span></div></div>`;
   const markup = state.portfolio.activity.length
     ? state.portfolio.activity.map(activityItemMarkup).join('')
     : (state.auth.profile && !state.portfolio.loaded ? syncing : blank);
@@ -120,17 +119,20 @@ function renderActivity() {
   $('#activityFullList').innerHTML = markup;
 }
 
-// Verified recipient receipt activity, exactly as /api/me/portfolio reports it. Never a payer
-// address and never a wallet: only the receipt states, amounts, and source/destination hashes.
+// Keep recipient activity in payment language. Server-side receipts retain all route and settlement
+// detail for verification, but the merchant-facing dashboard exposes only an honest payment state.
 function activityItemMarkup(item) {
-  const amountText = item.receive?.amount ? `+${item.receive.amount} USDC` : item.receive?.requested ? `${item.receive.requested} USDC requested` : 'USDC payment';
-  const detail = `${item.sourceNetwork ? item.sourceNetwork.name : 'Source'} → Monad`;
-  const progress = item.settlementVerified ? 'Verified' : item.final ? 'Final' : 'In progress';
-  return `<div class="activity-item"><div class="activity-icon in">↙</div><div class="activity-main"><b>${item.label}</b><span>${detail}</span></div><div class="activity-right"><b>${amountText}</b><span>${progress}</span></div></div>`;
+  const complete = Boolean(item.settlementVerified && item.status === 'settled');
+  const amount = item.receive?.amount || item.receive?.requested;
+  const amountText = amount ? `+$${amount}` : 'Payment';
+  const title = complete ? 'Payment received' : item.final ? 'Payment update' : 'Payment in progress';
+  const detail = complete ? 'Payment confirmed' : item.final ? 'Payment could not be completed' : 'We are confirming this payment';
+  const progress = complete ? 'Complete' : item.final ? 'Complete' : 'Confirming';
+  return `<div class="activity-item"><div class="activity-icon in">↙</div><div class="activity-main"><b>${title}</b><span>${detail}</span></div><div class="activity-right"><b>${amountText}</b><span>${progress}</span></div></div>`;
 }
 
-// The verified Monad USDC balance from the server's on-chain read. When the chain cannot be read
-// the dashboard says "syncing/unavailable" — it never shows a fake zero balance.
+// The server reads the payment balance from the settlement chain. The recipient UI deliberately
+// presents it as a dollar balance and never substitutes a fabricated zero when it cannot be read.
 function renderBalance() {
   const profile = state.auth.profile;
   const balance = state.portfolio.balance;
@@ -138,23 +140,23 @@ function renderBalance() {
   const sub = $('#balanceSub');
   if (!profile) {
     amount.innerHTML = state.balanceVisible ? '—' : '•••';
-    sub.innerHTML = '<span class="stable-dot">$</span> Sign in to view confirmed USDC <span class="balance-network">on Monad</span>';
+    sub.innerHTML = '<span class="stable-dot">$</span> Sign in to view your confirmed balance';
     return;
   }
   if (!state.balanceVisible) {
     amount.innerHTML = '•••';
-    sub.innerHTML = '<span class="stable-dot">$</span> Balance hidden <span class="balance-network">on Monad</span>';
+    sub.innerHTML = '<span class="stable-dot">$</span> Balance hidden';
     return;
   }
   if (balance.status === 'available') {
-    amount.innerHTML = `${balance.amount} <span>USDC</span>`;
-    sub.innerHTML = '<span class="stable-dot">$</span> Verified on-chain balance <span class="balance-network">on Monad</span>';
+    amount.innerHTML = `$${balance.amount}`;
+    sub.innerHTML = '<span class="stable-dot">$</span> Confirmed balance';
     return;
   }
   amount.innerHTML = '—';
   sub.innerHTML = balance.status === 'unavailable'
-    ? '<span class="stable-dot">$</span> Balance syncing/unavailable — not a zero balance <span class="balance-network">on Monad</span>'
-    : '<span class="stable-dot">$</span> Syncing verified balance <span class="balance-network">on Monad</span>';
+    ? '<span class="stable-dot">$</span> We could not refresh your balance — this is not a zero balance'
+    : '<span class="stable-dot">$</span> Checking your confirmed balance';
 }
 
 // Loads the signed-in owner's portfolio. Failures keep the last honest state: an unreadable RPC
@@ -186,31 +188,34 @@ function renderIdentity() {
   const profile = state.auth.profile;
   const handle = profile ? `@${profile.username}` : 'Sign in to claim your @username';
   const name = profile?.displayName || 'Sign in to Handoff';
-  const link = profile ? canonicalPaymentUrl(profile.username).replace(/^https?:\/\//, '') : 'A verified Handoff username resolves to Monad USDC.';
+  const link = profile ? canonicalPaymentUrl(profile.username).replace(/^https?:\/\//, '') : 'Create a simple page for people to pay you.';
   const avatar = initial(profile?.displayName || profile?.username);
 
   $('#identityHandle').textContent = handle;
   $('#identityLink').textContent = link;
   $('#identityAvatar').textContent = avatar;
-  $('#previewName').textContent = name;
-  $('#previewHandle').textContent = profile ? handle : 'Claim a Handoff username';
-  $('#previewAvatar').textContent = avatar;
   $('#profileName').textContent = name;
-  $('#profileHandle').textContent = profile ? `${handle} · Ready to receive on Monad` : 'Sign in with a passkey or email to claim your payment identity.';
+  $('#profileHandle').textContent = profile ? `${handle} · Ready to get paid.` : 'Sign in with a passkey or email to claim your payment name.';
   $('#profileAvatar').textContent = avatar;
   $('#profileMiniAvatar').textContent = avatar;
   $('#profileMiniName').textContent = profile ? name : 'Sign in to Handoff';
   $('#profileMiniHandle').textContent = profile ? handle : 'Claim your payment handle';
   $('#authButton').innerHTML = state.auth.signedIn ? 'Sign out <span>↗</span>' : 'Sign in <span>↗</span>';
+  $('#sharePageTitle').textContent = profile ? `Share ${handle}` : 'Sign in to create your payment page.';
+  $('#sharePageCopy').textContent = profile ? 'Copy this page and send it to anyone who needs to pay you.' : 'Use a passkey or email to claim your Handoff name.';
+  $('#sharePageLink').textContent = profile ? canonicalPaymentUrl(profile.username).replace(/^https?:\/\//, '') : '—';
+  $('#sharePaidPage').disabled = !profile;
   renderBalance();
 
   $('#aliasList').innerHTML = profile
     ? `<div class="alias-entry"><div class="alias-platform">@</div><div class="alias-data"><b>Handoff username</b><span>@${profile.username}</span></div><div class="alias-status">✓ Active</div></div>`
-    : '<div class="alias-entry"><div class="alias-platform">@</div><div class="alias-data"><b>One canonical username</b><span>Sign in to claim your payment identity.</span></div></div>';
+    : '<div class="alias-entry"><div class="alias-platform">@</div><div class="alias-data"><b>One canonical username</b><span>Sign in to claim your payment name.</span></div></div>';
 }
 
 function renderRails() {
-  $('#routesGrid').innerHTML = networks.map(network => {
+  const grid = $('#routesGrid');
+  if (!grid) return;
+  grid.innerHTML = networks.map(network => {
     if (network.status !== 'live') {
       return `<div class="rail unavailable" title="${network.name} is not available yet"><span class="rail-icon" style="background:${network.color}">${network.short}</span><span>${network.name}</span><em class="rail-status">Not available yet</em></div>`;
     }
@@ -240,7 +245,7 @@ function applyPaymentConfig(payments) {
 }
 async function refreshRoutes(silent = false) {
   const status = $('#routeSyncText');
-  status.textContent = 'Syncing routes…';
+  if (status) status.textContent = 'Syncing routes…';
   const live = networks.filter(network => network.status === 'live');
   try {
     const response = await fetch('/api/relay/routes');
@@ -250,12 +255,14 @@ async function refreshRoutes(silent = false) {
     renderRails();
     renderNetworkPicker();
     const available = live.filter(networkSelectable).length;
-    $('#railStatus').textContent = `${available} of ${live.length} live source networks are open right now. Solana and TON are not available yet.`;
-    status.textContent = `${available}/${live.length} routes checked live`;
+    const railStatus = $('#railStatus');
+    if (railStatus) railStatus.textContent = `${available} of ${live.length} live source networks are open right now. Solana and TON are not available yet.`;
+    if (status) status.textContent = `${available}/${live.length} routes checked live`;
     if (!silent) toast(`Live Relay data checked: ${available} of ${live.length} source routes open.`);
   } catch {
-    status.textContent = 'Route check unavailable';
-    $('#railStatus').textContent = 'Route status is checked again when you request a quote. A live quote is required before anything can be signed.';
+    if (status) status.textContent = 'Route check unavailable';
+    const railStatus = $('#railStatus');
+    if (railStatus) railStatus.textContent = 'Route status is checked again when you request a quote. A live quote is required before anything can be signed.';
     if (!silent) toast('Could not reach Relay. Check again before paying.');
   }
 }
@@ -670,14 +677,6 @@ async function signAndPay() {
   }
 }
 
-function updateRequestPreview() {
-  const amount = $('#requestAmount').value || '0.00';
-  const note = $('#requestNote').value.trim() || 'Payment request';
-  $('#previewAmount').innerHTML = `${state.requestType === 'fixed' ? `$${Number(amount || 0).toFixed(2)}` : 'Any amount'} <small>${state.requestType === 'fixed' ? 'USDC' : ''}</small>`;
-  $('#previewNote').textContent = note;
-  $('#requestAmountLabel').style.opacity = state.requestType === 'fixed' ? '1' : '.45';
-  $('#requestAmount').disabled = state.requestType !== 'fixed';
-}
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     if (window.HandoffDynamic) return resolve();
@@ -752,7 +751,7 @@ async function expireSession() {
   try { await window.HandoffDynamic?.signOut?.(); } catch { /* Local state still resets below. */ }
   resetLocalSession();
   showAuthStep('start');
-  setAuthStatus('Your session ended. Continue with email to sign in again.');
+  setAuthStatus('Your session ended. Continue securely to sign in again.');
   openModal('authModal');
 }
 
@@ -940,7 +939,7 @@ async function claimUsername() {
     state.auth.profile = data.profile;
     renderIdentity();
     closeModals();
-    toast(`@${data.profile.username} is ready to receive USDC on Monad.`);
+    toast(`@${data.profile.username} is ready to get paid.`);
     refreshPortfolio();
   } catch (error) {
     if (error.status === 401) return expireSession();
@@ -968,20 +967,23 @@ async function signOut() {
 function bindEvents() {
   $$('.nav-item').forEach(item => item.addEventListener('click', () => goTo(item.dataset.page)));
   $$('[data-go]').forEach(item => item.addEventListener('click', () => goTo(item.dataset.go)));
-  $('#quickRequest').addEventListener('click', () => state.auth.profile ? goTo('get-paid') : openAuthFlow());
-  $('#requestFromBalance').addEventListener('click', () => state.auth.profile ? goTo('get-paid') : openAuthFlow());
-  $('#createRequest').addEventListener('click', () => state.auth.profile ? goTo('get-paid') : openAuthFlow());
+  const sharePaymentPage = () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow();
+  $('#quickRequest').addEventListener('click', sharePaymentPage);
+  $('#requestFromBalance').addEventListener('click', sharePaymentPage);
+  $('#createRequest').addEventListener('click', sharePaymentPage);
+  $('#sharePaidPage').addEventListener('click', sharePaymentPage);
+  // The sender flow is reachable from public /@username pages. Keep this legacy trigger inert and
+  // hidden in the recipient dashboard so it never adds crypto language or choices there.
   $('#sendFromBalance').addEventListener('click', openPay);
   $('#openIdentity').addEventListener('click', () => state.auth.profile ? goTo('identity') : openAuthFlow());
-  $('#routeRefresh').addEventListener('click', () => refreshRoutes());
   $('#toggleBalance').addEventListener('click', () => { state.balanceVisible = !state.balanceVisible; renderIdentity(); });
   $('#copyHandle').addEventListener('click', () => state.auth.profile ? copyText(`@${state.auth.profile.username}`, 'Handoff username copied') : openAuthFlow());
   $('#copyPublicLink').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
   $('#shareProfile').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
   $('#profileButton').addEventListener('click', () => state.auth.profile ? goTo('identity') : openAuthFlow());
   $('#authButton').addEventListener('click', () => state.auth.signedIn ? signOut() : openAuthFlow());
-  $('#openSecurity').addEventListener('click', () => toast('Handoff keeps your payment identity simple: sign in securely and share your username.'));
-  $('#openNotifications').addEventListener('click', () => toast('Settlement and request updates appear after they are stored server-side.'));
+  $('#openSecurity').addEventListener('click', () => toast('Handoff keeps getting paid simple: sign in securely and share your username.'));
+  $('#openNotifications').addEventListener('click', () => toast('Payment updates appear here after they are confirmed.'));
   $('#mobileMenu').addEventListener('click', () => $('.sidebar').classList.toggle('open'));
   $('#modalBackdrop').addEventListener('click', closeModals);
   $$('[data-close]').forEach(button => button.addEventListener('click', closeModals));
@@ -1002,18 +1004,6 @@ function bindEvents() {
     resetPaymentFlow();
     prepareQuote(state.selectedNetwork);
   });
-  $$('.segmented button').forEach(button => button.addEventListener('click', () => {
-    $$('.segmented button').forEach(item => item.classList.toggle('active', item === button));
-    state.requestType = button.dataset.requestType;
-    updateRequestPreview();
-  }));
-  $('#requestAmount').addEventListener('input', updateRequestPreview);
-  $('#requestNote').addEventListener('input', updateRequestPreview);
-  $('#previewEdit').addEventListener('click', () => $('#requestAmount').focus());
-  $$('.filter').forEach(button => button.addEventListener('click', () => {
-    $$('.filter').forEach(item => item.classList.toggle('active', item === button));
-    toast('Activity filters apply once confirmed payments are stored.');
-  }));
   $('#continueWithEmail').addEventListener('click', continueWithEmail);
   $('#retryWalletSetup').addEventListener('click', retryWalletSetup);
   $('#claimUsernameButton').addEventListener('click', claimUsername);
@@ -1035,7 +1025,6 @@ function init() {
   renderRecipientProof();
   renderRails();
   renderNetworkPicker();
-  updateRequestPreview();
   bindEvents();
   refreshRoutes(true);
   initialiseDynamic();

@@ -1,6 +1,6 @@
 // Drives the real public/index.html and public/app.js in jsdom with a fake Dynamic client and a
-// fake API. Covers the signed-in owner dashboard: the verified Monad USDC balance (never a fake
-// zero), verified recipient receipt activity, and a recipient identity UI that never exposes
+// fake API. Covers the signed-in owner dashboard: the verified payment balance (never a fake
+// zero), simple recipient payment activity, and a recipient identity UI that never exposes
 // a wallet address, seed phrase, private key, settings panel, or export workflow.
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -112,7 +112,7 @@ async function signInWithPortfolio(portfolioBody, extraRoutes = {}) {
   return loaded;
 }
 
-test('the signed-in dashboard shows the verified Monad USDC balance from /api/me/portfolio', async () => {
+test('the signed-in dashboard shows a confirmed dollar balance from /api/me/portfolio without chain jargon', async () => {
   const { doc } = await signInWithPortfolio({
     balance: { asset: 'USDC', network: 'Monad', chainId: 143, status: 'available', amount: '1234.56', checkedAt: '2026-10-10T12:00:00.000Z' },
     activity: [SETTLED_ITEM],
@@ -120,7 +120,8 @@ test('the signed-in dashboard shows the verified Monad USDC balance from /api/me
   });
 
   await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'the real balance amount');
-  assert.match(doc.querySelector('#balanceSub').textContent, /Verified on-chain balance/);
+  assert.match(doc.querySelector('#balanceSub').textContent, /Confirmed balance/);
+  assert.equal(/Monad|USDC|on-chain/i.test(doc.querySelector('#overviewPage').textContent), false, 'recipient dashboard hides payment-rail implementation details');
   assert.equal(doc.querySelector('#balanceAmount').textContent.includes('0.00'), false);
 });
 
@@ -131,30 +132,31 @@ test('the dashboard shows verified recipient receipt activity, and nothing befor
     checkedAt: '2026-10-10T12:00:00.000Z'
   });
 
-  await waitFor(() => doc.querySelector('#activityList').textContent.includes('Settled as USDC on Monad'), 'settled receipt');
+  await waitFor(() => doc.querySelector('#activityList').textContent.includes('Payment received'), 'completed payment');
   const list = doc.querySelector('#activityList');
-  assert.match(list.textContent, /\+24\.50 USDC/);
-  assert.match(list.textContent, /Base → Monad/);
-  assert.match(list.textContent, /Verified/);
+  assert.match(list.textContent, /\+\$24\.50/);
+  assert.match(list.textContent, /Payment confirmed/);
+  assert.match(list.textContent, /Complete/);
+  assert.equal(/Base|Monad|USDC|Relay|Settled/i.test(list.textContent), false, 'recipient activity is expressed only as a payment');
   assert.equal(/awaiting|quote received/i.test(list.textContent), false);
   // The public privacy model holds on the dashboard too: no payer address anywhere.
   assert.equal(/0x1111/i.test(doc.querySelector('#overviewPage').textContent), false);
 });
 
-test('when the Monad RPC cannot be read the dashboard says syncing/unavailable, never a fake zero', async () => {
+test('when the balance cannot be read the dashboard explains the state without a fake zero or chain jargon', async () => {
   const { doc } = await signInWithPortfolio({
     balance: { asset: 'USDC', network: 'Monad', chainId: 143, status: 'unavailable', amount: null, checkedAt: '2026-10-10T12:00:00.000Z' },
     activity: [SETTLED_ITEM],
     checkedAt: '2026-10-10T12:00:00.000Z'
   });
 
-  await waitFor(() => /syncing\/unavailable/i.test(doc.querySelector('#balanceSub').textContent), 'the unavailable state');
+  await waitFor(() => /could not refresh your balance/i.test(doc.querySelector('#balanceSub').textContent), 'the unavailable state');
   const amount = doc.querySelector('#balanceAmount').textContent.trim();
   assert.equal(amount, '—', 'no number is shown when the chain cannot be read');
   assert.equal(/0\.00|^0$|^0 /.test(amount), false, 'never a fake zero balance');
   assert.match(doc.querySelector('#balanceSub').textContent, /not a zero balance/);
   // Activity is independent of the RPC read.
-  assert.match(doc.querySelector('#activityList').textContent, /Settled as USDC on Monad/);
+  assert.match(doc.querySelector('#activityList').textContent, /Payment received/);
 });
 
 test('before the portfolio answers, the dashboard says syncing rather than zero', async () => {
@@ -165,9 +167,9 @@ test('before the portfolio answers, the dashboard says syncing rather than zero'
     return { body: { balance: { status: 'available', amount: '5.00' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z' } };
   });
 
-  await waitFor(() => /Syncing verified balance/i.test(doc.querySelector('#balanceSub').textContent), 'the syncing state');
+  await waitFor(() => /Checking your confirmed balance/i.test(doc.querySelector('#balanceSub').textContent), 'the syncing state');
   assert.equal(doc.querySelector('#balanceAmount').textContent.trim(), '—');
-  assert.match(doc.querySelector('#activityList').textContent, /Syncing activity/);
+  assert.match(doc.querySelector('#activityList').textContent, /Checking for payments/);
   release();
   await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('5.00'), 'the real balance');
 });
@@ -195,8 +197,10 @@ test('recipient identity uses a simple sign-in surface without an address, setti
   assert.equal(doc.querySelector('#openWalletSettings'), null);
   assert.equal(doc.querySelector('#exportWalletKey'), null);
   assert.equal(doc.querySelector('#exportKeyModal'), null);
-  assert.match(doc.querySelector('#profileHandle').textContent, /Ready to receive on Monad/);
+  assert.match(doc.querySelector('#profileHandle').textContent, /Ready to get paid/);
   assert.match(doc.querySelector('#identityPage').textContent, /passkey or email/i);
+  assert.equal(/Monad|USDC|wallet|EVM|Relay/i.test(doc.querySelector('#identityPage').textContent), false);
+  assert.equal(doc.querySelector('#sharePaidPage').disabled, false, 'the only recipient share action is ready to use');
 });
 
 test('signed-out recipients are offered hosted secure sign-in without a wallet or key prompt', async () => {
