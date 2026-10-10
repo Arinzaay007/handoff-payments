@@ -1,0 +1,8 @@
+# Local configuration — never commit credentials.
+.env
+.env.local
+.env.*.local
+
+# Installed dependencies and logs
+node_modules/
+npm-debug.log*
