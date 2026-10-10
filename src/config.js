@@ -50,11 +50,14 @@ function mainnetGuards() {
 }
 
 function status() {
+  const renderRevision = required('RENDER_GIT_COMMIT');
   return {
     dynamicConfigured: Boolean(config.dynamic.environmentId),
     databaseConfigured: Boolean(config.supabase.url && config.supabase.serviceRoleKey),
     relayConfigured: Boolean(config.relay.apiKey),
-    mainnetGuards: mainnetGuards()
+    mainnetGuards: mainnetGuards(),
+    // Public, non-secret deployment proof. Render supplies the exact Git commit at runtime.
+    deploymentRevision: /^[0-9a-f]{40}$/i.test(renderRevision || '') ? renderRevision.toLowerCase() : null
   };
 }
 

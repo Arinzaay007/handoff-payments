@@ -10,7 +10,7 @@
 # Free-plan notes:
 #   * Build:  npm ci && npm run build   (regenerates public/dynamic-client.js)
 #   * Start:  npm start                 (Node server binds 0.0.0.0:$PORT)
-#   * Health: GET /api/config           (readiness booleans + mainnet caps only)
+#   * Health: GET /api/config           (readiness booleans + caps + public Git revision)
 services:
   - type: web
     name: handoff-payments
