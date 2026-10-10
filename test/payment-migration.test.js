@@ -1,4 +1,4 @@
-// Runs migrations 0001 → 0003 in an in-memory Postgres (PGlite) and proves the database-level payment
+// Runs migrations 0001 → 0004 in an in-memory Postgres (PGlite) and proves the database-level payment
 // guards: the per-payment and rolling daily caps, the receipt guard trigger, integrity constraints,
 // and the revoked grants on the reservation function. Migrations are never applied to Supabase here.
 const test = require('node:test');
@@ -9,7 +9,7 @@ const { PGlite } = require('@electric-sql/pglite');
 const { pgcrypto } = require('@electric-sql/pglite/contrib/pgcrypto');
 
 const ROOT = path.join(__dirname, '..');
-const MIGRATIONS = ['0001_handoff_mainnet_schema.sql', '0002_claim_handoff_profile.sql', '0003_payment_execution_guards.sql'];
+const MIGRATIONS = ['0001_handoff_mainnet_schema.sql', '0002_claim_handoff_profile.sql', '0003_payment_execution_guards.sql', '0004_exact_output_merchant_settlement.sql'];
 const USDC_BASE = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const HASH = n => `0x${n.toString(16).padStart(64, '0')}`;
 const PAYER = n => `0x${n.toString(16).padStart(40, '0')}`;
@@ -32,13 +32,12 @@ async function expectError(promise, pattern) {
   return caught;
 }
 
-function reserve({ payer, amount, daily = '100000000', perPayment = '25000000', expiresInMinutes = 5 }) {
+function reserve({ payer, amount, destination = amount, routeFee = 0n, daily = '100000000', perPayment = '25000000', expiresInMinutes = 5 }) {
   return q(
-    `select * from public.reserve_payment_attempt($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    `select * from public.reserve_payment_attempt($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     [
-      payer, profileId, walletId, 8453, USDC_BASE, amount.toString(), '990000',
-      `req-${++seq}-${Date.now()}`, new Date(Date.now() + expiresInMinutes * 60_000).toISOString(),
-      perPayment, daily
+      payer, profileId, walletId, 8453, USDC_BASE, amount.toString(), destination.toString(), routeFee.toString(), destination.toString(),
+      `req-${++seq}-${Date.now()}`, new Date(Date.now() + expiresInMinutes * 60_000).toISOString(), perPayment, daily
     ]
   );
 }
@@ -56,6 +55,11 @@ async function insertAttempt(fields = {}) {
     relay_request_id: `direct-${seq}-${Date.now()}`,
     ...fields
   };
+  // 0004 requires a confirmed source debit for post-submission rows. Direct fixtures model the
+  // confirmed debit as the immutable quoted source amount unless a test deliberately overrides it.
+  if (['source_confirmed', 'routing', 'settled'].includes(row.status) && row.actual_source_amount === undefined) {
+    row.actual_source_amount = row.source_amount;
+  }
   const keys = Object.keys(row);
   const values = keys.map(key => row[key]);
   const rows = await q(
@@ -94,7 +98,7 @@ test.after(async () => {
   await db?.close();
 });
 
-test('migrations 0001 → 0003 apply in order and attach the guard trigger', async () => {
+test('migrations 0001 → 0004 apply in order and attach the exact-output guard trigger', async () => {
   const [trigger] = await q(`select tgname from pg_trigger where tgname = 'payment_attempts_guard_update'`);
   assert.equal(trigger?.tgname, 'payment_attempts_guard_update');
   const [fn] = await q(`select proname from pg_proc where proname = 'reserve_payment_attempt'`);
@@ -105,6 +109,8 @@ test('the 25 USDC per-payment cap is enforced by the reservation function', asyn
   const [ok] = await reserve({ payer: PAYER(1001), amount: 25n * USDC });
   assert.equal(ok.status, 'quote_created');
   assert.equal(ok.destination_chain_id, 143);
+  assert.equal(ok.exact_output, true);
+  assert.equal(String(ok.quoted_source_amount), String(25n * USDC));
   await expectError(reserve({ payer: PAYER(1002), amount: 25n * USDC + 1n }), /PER_PAYMENT_CAP_EXCEEDED/);
 });
 
@@ -176,8 +182,8 @@ test('the guard trigger refuses backward receipt moves', async () => {
 test('the guard trigger freezes the source hash, amount, payer, and route once recorded', async () => {
   const row = await insertAttempt({ source_tx_hash: HASH(3002), status: 'transaction_submitted' });
   await expectError(q(`update public.payment_attempts set source_tx_hash = $2 where id = $1`, [row.id, HASH(3003)]), /Source transaction hash is immutable/);
-  await expectError(q(`update public.payment_attempts set source_amount = 1 where id = $1`, [row.id]), /route and amount are immutable/);
-  await expectError(q(`update public.payment_attempts set payer_address = $2 where id = $1`, [row.id, PAYER(3004)]), /route and amount are immutable/);
+  await expectError(q(`update public.payment_attempts set source_amount = 1 where id = $1`, [row.id]), /route and quote terms are immutable/);
+  await expectError(q(`update public.payment_attempts set payer_address = $2 where id = $1`, [row.id, PAYER(3004)]), /route and quote terms are immutable/);
 });
 
 test('final receipts never change again', async () => {
@@ -201,6 +207,36 @@ test('settled requires a Monad destination hash, a settlement time, and an amoun
     [base.id, HASH(4003), (9n * USDC).toString()]
   );
   assert.equal(settled.status, 'settled');
+});
+
+test('an exact-output receipt must preserve terms and settle to exactly the requested Monad-USDC amount', async () => {
+  const [quoted] = await reserve({ payer: PAYER(4010), amount: 10n * USDC, destination: 9n * USDC, routeFee: 1n * USDC });
+  assert.equal(String(quoted.requested_destination_amount), String(9n * USDC));
+  assert.equal(String(quoted.quoted_source_amount), String(10n * USDC));
+  assert.equal(String(quoted.quoted_route_fee_amount), String(1n * USDC));
+  await expectError(q(`update public.payment_attempts set requested_destination_amount = 1 where id = $1`, [quoted.id]), /route and quote terms are immutable/);
+
+  const row = await insertAttempt({
+    payer_address: PAYER(4011),
+    source_amount: 10n * USDC,
+    quoted_source_amount: 10n * USDC,
+    actual_source_amount: 10n * USDC,
+    quoted_route_fee_amount: 1n * USDC,
+    requested_destination_amount: 9n * USDC,
+    minimum_destination_amount: 9n * USDC,
+    exact_output: true,
+    true_exact_output: true,
+    source_tx_hash: HASH(4011),
+    status: 'routing'
+  });
+  await expectError(
+    q(`update public.payment_attempts set status = 'settled', destination_tx_hash = $2, settled_at = now(), final_destination_amount = $3 where id = $1`, [row.id, HASH(4012), (9n * USDC - 1n).toString()]),
+    /payment_attempts_exact_output_settlement/
+  );
+  await expectError(
+    q(`update public.payment_attempts set status = 'settled', destination_tx_hash = $2, settled_at = now(), final_destination_amount = $3 where id = $1`, [row.id, HASH(4013), (9n * USDC + 1n).toString()]),
+    /payment_attempts_exact_output_settlement/
+  );
 });
 
 test('a source transaction is required before any post-submission state', async () => {

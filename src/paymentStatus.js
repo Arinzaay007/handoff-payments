@@ -22,7 +22,8 @@ const FAILURE_MESSAGES = Object.freeze({
   RELAY_FAILURE: 'Relay could not complete this route. No settlement was recorded.',
   SOURCE_HASH_UNMATCHED: 'The submitted source transaction does not match this route. No settlement was recorded.',
   QUOTE_EXPIRED: 'This quote expired before the transaction was submitted.',
-  SIGNATURE_REJECTED: 'The transaction was not signed in your wallet.'
+  SIGNATURE_REJECTED: 'The transaction was not signed in your wallet.',
+  SETTLEMENT_NOT_VERIFIED: 'Monad did not verify the exact requested USDC amount. This was not recorded as a completed exact payment.'
 });
 
 // Maps Relay's intent status to a receipt state. "success" is intentionally NOT mapped to settled here:
@@ -58,6 +59,10 @@ function networkByChainId(chainId) {
   return SOURCE_NETWORKS.find(network => network.chainId === Number(chainId)) || null;
 }
 
+function displayAmount(value) {
+  return value === null || value === undefined ? null : formatUsdc(value);
+}
+
 /**
  * Display-safe receipt. Contains NO payer wallet, NO recipient wallet, NO database identifiers other
  * than the payment ID the payer already holds, and no provider error text.
@@ -66,6 +71,9 @@ function publicReceipt(attempt, recipient) {
   const network = networkByChainId(attempt.source_chain_id);
   const isFailed = attempt.status === 'failed';
   const failureCode = isFailed ? (attempt.failure_code || 'RELAY_FAILURE') : null;
+  const exactOutput = attempt.exact_output === true;
+  const requestedDestination = attempt.requested_destination_amount || attempt.minimum_destination_amount;
+  const quotedSource = attempt.quoted_source_amount || attempt.source_amount;
   return {
     paymentId: attempt.id,
     status: attempt.status,
@@ -74,12 +82,21 @@ function publicReceipt(attempt, recipient) {
     // The quote lapsed before any source transaction was recorded. The payer must get a new quote.
     quoteExpired: PRE_SUBMISSION_STATES.has(attempt.status) && !attempt.source_tx_hash
       && Date.parse(attempt.quote_expires_at || '') <= Date.now(),
+    exactOutput,
     sourceNetwork: network ? { key: network.key, name: network.name } : null,
-    send: { amount: formatUsdc(attempt.source_amount), asset: 'USDC' },
+    // Quoted and confirmed source debits are separate values; the latter remains null until Relay
+    // confirms the deposit. Both intentionally exclude the wallet's separately-paid native gas.
+    send: {
+      quoted: { amount: displayAmount(quotedSource), asset: 'USDC' },
+      actual: { amount: displayAmount(attempt.actual_source_amount), asset: 'USDC' },
+      routeCost: displayAmount(attempt.quoted_route_fee_amount)
+    },
+    networkGas: network ? { asset: network.nativeCurrency, paidBy: 'payer' } : null,
     receive: {
       network: MONAD.name,
       asset: MONAD.asset,
-      minimum: attempt.minimum_destination_amount ? formatUsdc(attempt.minimum_destination_amount) : null,
+      requested: displayAmount(requestedDestination),
+      guaranteed: exactOutput,
       amount: attempt.status === 'settled' && attempt.final_destination_amount ? formatUsdc(attempt.final_destination_amount) : null
     },
     recipient: recipient ? { username: recipient.username, displayName: recipient.displayName } : null,

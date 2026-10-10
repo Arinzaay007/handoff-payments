@@ -96,10 +96,12 @@ test('Solana and TON quotes are refused as not available yet', async () => {
   }
 });
 
-test('a quote above the 25 USDC per-payment cap is refused with a clear code', async () => {
+test('the requested merchant output is not treated as a payer cap before Relay quotes the source debit', async () => {
   const response = await call('POST', '/api/payments/quote', { payer: PAYER, sourceNetwork: 'base', recipientHandle: 'morgan', amount: '26' });
-  assert.equal(response.status, 400);
-  assert.equal(response.json.code, 'PER_PAYMENT_CAP_EXCEEDED');
+  // The test deployment deliberately blocks Relay, so it cannot determine payer input. The key
+  // contract is that this is not a premature per-payment-cap rejection of the merchant output.
+  assert.notEqual(response.json?.code, 'PER_PAYMENT_CAP_EXCEEDED');
+  assert.notEqual(response.status, 400);
 });
 
 test('a quote that cannot be verified or routed never returns a transaction, and its error hides provider detail', async () => {

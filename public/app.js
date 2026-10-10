@@ -43,16 +43,16 @@ const NETWORK_STYLE = {
   ton: { short: 'T', color: '#d9edff' }
 };
 const FALLBACK_SOURCE_NETWORKS = [
-  { key: 'ethereum', name: 'Ethereum', chainId: 1, type: 'evm', status: 'live' },
-  { key: 'base', name: 'Base', chainId: 8453, type: 'evm', status: 'live' },
-  { key: 'arbitrum', name: 'Arbitrum', chainId: 42161, type: 'evm', status: 'live' },
-  { key: 'optimism', name: 'Optimism', chainId: 10, type: 'evm', status: 'live' },
-  { key: 'polygon', name: 'Polygon', chainId: 137, type: 'evm', status: 'live' },
-  { key: 'bnb', name: 'BNB Chain', chainId: 56, type: 'evm', status: 'live' },
-  { key: 'avalanche', name: 'Avalanche', chainId: 43114, type: 'evm', status: 'live' },
-  { key: 'celo', name: 'Celo', chainId: 42220, type: 'evm', status: 'live' },
-  { key: 'solana', name: 'Solana', chainId: 792703809, type: 'svm', status: 'not_available' },
-  { key: 'ton', name: 'TON', chainId: 224235520, type: 'tonvm', status: 'not_available' }
+  { key: 'ethereum', name: 'Ethereum', chainId: 1, type: 'evm', nativeCurrency: 'ETH', status: 'live' },
+  { key: 'base', name: 'Base', chainId: 8453, type: 'evm', nativeCurrency: 'ETH', status: 'live' },
+  { key: 'arbitrum', name: 'Arbitrum', chainId: 42161, type: 'evm', nativeCurrency: 'ETH', status: 'live' },
+  { key: 'optimism', name: 'Optimism', chainId: 10, type: 'evm', nativeCurrency: 'ETH', status: 'live' },
+  { key: 'polygon', name: 'Polygon', chainId: 137, type: 'evm', nativeCurrency: 'POL', status: 'live' },
+  { key: 'bnb', name: 'BNB Chain', chainId: 56, type: 'evm', nativeCurrency: 'BNB', status: 'live' },
+  { key: 'avalanche', name: 'Avalanche', chainId: 43114, type: 'evm', nativeCurrency: 'AVAX', status: 'live' },
+  { key: 'celo', name: 'Celo', chainId: 42220, type: 'evm', nativeCurrency: 'CELO', status: 'live' },
+  { key: 'solana', name: 'Solana', chainId: 792703809, type: 'svm', nativeCurrency: 'SOL', status: 'not_available' },
+  { key: 'ton', name: 'TON', chainId: 224235520, type: 'tonvm', nativeCurrency: 'TON', status: 'not_available' }
 ];
 let networks = FALLBACK_SOURCE_NETWORKS.map(item => ({ ...item, ...NETWORK_STYLE[item.key] }));
 
@@ -130,7 +130,7 @@ function renderActivity() {
 // Verified recipient receipt activity, exactly as /api/me/portfolio reports it. Never a payer
 // address and never a wallet: only the receipt states, amounts, and source/destination hashes.
 function activityItemMarkup(item) {
-  const amountText = item.receive?.amount ? `+${item.receive.amount} USDC` : `${item.send.amount} USDC`;
+  const amountText = item.receive?.amount ? `+${item.receive.amount} USDC` : item.receive?.requested ? `${item.receive.requested} USDC requested` : 'USDC payment';
   const detail = `${item.sourceNetwork ? item.sourceNetwork.name : 'Source'} → Monad`;
   const progress = item.settlementVerified ? 'Verified' : item.final ? 'Final' : 'In progress';
   return `<div class="activity-item"><div class="activity-icon in">↙</div><div class="activity-main"><b>${item.label}</b><span>${detail}</span></div><div class="activity-right"><b>${amountText}</b><span>${progress}</span></div></div>`;
@@ -350,7 +350,7 @@ function receiptMessage(receipt) {
     case 'transaction_submitted': return `Transaction submitted from your wallet (${shortHash(receipt.sourceTxHash)}). Waiting for the source chain to confirm.`;
     case 'source_confirmed': return 'Source transaction confirmed. Routing to Monad.';
     case 'routing': return 'Routing to Monad. Handoff shows “Settled” only after Monad confirms the USDC transfer.';
-    case 'settled': return `Settled as USDC on Monad, verified on-chain (${shortHash(receipt.destinationTxHash)}).`;
+    case 'settled': return `Recipient received exactly ${receipt.receive?.amount || receipt.receive?.requested || 'the requested'} USDC on Monad, verified on-chain (${shortHash(receipt.destinationTxHash)}).`;
     case 'failed': return receipt.failure?.message || 'This payment could not be completed.';
     case 'refunded': return 'Relay refunded this payment. Check your source wallet.';
     default: return '';
@@ -429,16 +429,20 @@ function selectNetwork(key) {
 }
 function prepareQuote(network) {
   const amount = Number(amountInput() || 25);
-  $('#quoteSend').textContent = `${Number.isFinite(amount) ? amount.toFixed(2) : '—'} USDC`;
-  $('#quoteSource').textContent = `on ${network.name}`;
-  $('#quoteReceive').textContent = '— USDC';
+  const requested = Number.isFinite(amount) ? amount.toFixed(2) : '—';
+  $('#quoteSend').textContent = '— USDC';
+  $('#quoteSource').textContent = `live USDC quote on ${network.name}`;
+  $('#quoteReceive').textContent = `${requested} USDC`;
+  $('#quoteReceiveMeta').textContent = 'on Monad · pending route validation';
+  $('#quoteGas').textContent = `${network.nativeCurrency || 'native gas'} — paid by you`;
+  $('#quoteRouteCost').textContent = 'Included in live quote';
   $('#quoteRoute').textContent = `Relay · ${network.name} → Monad`;
   $('#quoteRecipientName').textContent = `${state.recipient?.displayName || state.recipient?.username || 'Recipient'} receives`;
   $('#quoteRecipientHandle').textContent = state.recipient ? `@${state.recipient.username}` : '—';
   $('#paymentId').textContent = '—';
   renderReceipt(null);
   setQuoteBadge('Quote not requested yet', 'neutral');
-  $('#quoteState').textContent = 'Connect your wallet to request a live quote. Nothing is signed or submitted until you approve it in your wallet.';
+  $('#quoteState').textContent = 'Connect your wallet to request a live exact-output quote. Recipient output is fixed; the live quote determines your source-USDC amount.';
   setQuoteButtons('quote', 'Connect wallet & get live quote ↗');
 }
 async function ethereumAccount() {
@@ -451,15 +455,24 @@ async function ethereumAccount() {
 // Step 1 of checkout. The server validates the route and, if Relay returns an executable transaction
 // plan, reserves the attempt. Nothing is signed here.
 function applyQuote(data) {
-  const receive = data.quote?.receive;
-  const eta = data.quote?.timeEstimateSeconds ? ` Estimated route time: ${data.quote.timeEstimateSeconds}s.` : '';
-  $('#quoteSend').textContent = `${data.quote?.send?.amount || '—'} USDC`;
-  $('#quoteReceive').textContent = receive?.expected ? `${receive.expected} USDC` : receive?.minimum ? `at least ${receive.minimum} USDC` : '— USDC';
+  const quote = data.quote || {};
+  const receive = quote.receive || {};
+  const pay = quote.pay || {};
+  const eta = quote.timeEstimateSeconds ? ` Estimated route time: ${quote.timeEstimateSeconds}s.` : '';
+  const requested = receive.requested ? `${receive.requested} USDC${receive.guaranteed ? ' — guaranteed' : ''}` : '— USDC';
+  $('#quoteReceive').textContent = requested;
+  $('#quoteReceiveMeta').textContent = receive.guaranteed ? 'on Monad · guaranteed' : 'on Monad · not guaranteed';
+  $('#quoteSend').textContent = pay.amount ? `${pay.amount} ${pay.asset || 'USDC'}` : '— USDC';
+  $('#quoteSource').textContent = pay.amount ? `live quote on ${quote.sourceNetwork?.name || 'source network'}` : 'no executable source quote';
+  $('#quoteGas').textContent = `${quote.networkGas?.asset || 'Native gas'} — paid by you`;
+  $('#quoteRouteCost').textContent = pay.routeCost !== null && pay.routeCost !== undefined
+    ? `${pay.routeCost} USDC included in your quote`
+    : 'Not available without an executable quote';
   if (!data.executable) {
     state.payment.quote = null;
     $('#paymentId').textContent = '—';
     setQuoteBadge('Quote preview only', 'preview');
-    $('#quoteState').textContent = `${data.message || 'Quote preview only.'}${eta}`;
+    $('#quoteState').textContent = `${data.message || 'Quote preview only.'}${eta} Nothing can be signed because Handoff could not verify an exact recipient output.`;
     renderReceipt(null);
     setQuoteButtons('preview', 'Quote preview only — no transaction to sign');
     return;
@@ -468,7 +481,7 @@ function applyQuote(data) {
   state.payment.paymentId = data.paymentId;
   $('#paymentId').textContent = shortId(data.paymentId);
   setQuoteBadge('Quote received', 'live');
-  $('#quoteState').textContent = `Quote received.${eta} Quote expires at ${formatTime(data.expiresAt)}. Review the route, then sign in your wallet.`;
+  $('#quoteState').textContent = `Recipient receives ${receive.requested} USDC on Monad — guaranteed. You pay ${pay.amount} USDC, including ${pay.routeCost} USDC in route costs, plus ${quote.networkGas?.asset || 'native'} network gas from your wallet.${eta} Quote expires at ${formatTime(data.expiresAt)}. Review the route, then sign in your wallet.`;
   renderReceipt('quote_created');
   setQuoteButtons('sign', 'Sign & pay in wallet ↗');
 }

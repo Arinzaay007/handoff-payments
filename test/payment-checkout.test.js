@@ -42,9 +42,11 @@ function executableQuote(overrides = {}) {
     paymentId: PAYMENT_ID,
     expiresAt: new Date(Date.now() + 240_000).toISOString(),
     quote: {
-      send: { amount: '25.00', asset: 'USDC' },
+      exactOutput: true,
+      pay: { amount: '25.50', asset: 'USDC', routeCost: '0.50' },
       sourceNetwork: { key: 'base', name: 'Base' },
-      receive: { network: 'Monad', asset: 'USDC', expected: '24.50', minimum: '24.00' },
+      networkGas: { asset: 'ETH', paidBy: 'payer' },
+      receive: { network: 'Monad', asset: 'USDC', requested: '25.00', guaranteed: true },
       timeEstimateSeconds: 45
     },
     steps: [
@@ -64,7 +66,7 @@ function previewQuote() {
     message: 'Quote preview only. Relay did not return an executable transaction for this route, so Handoff cannot submit a payment for it.',
     paymentId: null,
     expiresAt: null,
-    quote: { send: { amount: '25.00', asset: 'USDC' }, sourceNetwork: { key: 'base', name: 'Base' }, receive: { network: 'Monad', asset: 'USDC', expected: '24.50', minimum: '24.00' }, timeEstimateSeconds: null },
+    quote: { exactOutput: true, pay: { amount: null, asset: 'USDC', routeCost: null }, sourceNetwork: { key: 'base', name: 'Base' }, networkGas: { asset: 'ETH', paidBy: 'payer' }, receive: { network: 'Monad', asset: 'USDC', requested: '25.00', guaranteed: false }, timeEstimateSeconds: null },
     steps: []
   };
 }
@@ -144,6 +146,7 @@ test('a quote-only route says "Quote preview only", offers no transaction, and s
   await startQuote(doc);
 
   assert.equal(doc.querySelector('#quoteBadge').textContent, 'Quote preview only');
+  assert.equal(doc.querySelector('#quoteReceiveMeta').textContent, 'on Monad · not guaranteed');
   assert.equal(doc.querySelector('#getQuote').disabled, true);
   assert.equal(doc.querySelector('#signPay').hidden, true, 'no submit control when no executable payload exists');
   assert.equal(calls.some(call => call.method === 'eth_sendTransaction'), false);
@@ -158,6 +161,12 @@ test('an executable quote is shown as received, and nothing is signed until the 
   assert.equal(doc.querySelector('#signPay').hidden, false);
   assert.equal(doc.querySelector('#getQuote').hidden, true);
   assert.equal(calls.some(call => call.method === 'eth_sendTransaction'), false, 'a quote alone never asks for a signature');
+  assert.equal(doc.querySelector('#quoteReceive').textContent, '25.00 USDC — guaranteed');
+  assert.equal(doc.querySelector('#quoteReceiveMeta').textContent, 'on Monad · guaranteed');
+  assert.equal(doc.querySelector('#quoteSend').textContent, '25.50 USDC');
+  assert.equal(doc.querySelector('#quoteRouteCost').textContent, '0.50 USDC included in your quote');
+  assert.equal(doc.querySelector('#quoteGas').textContent, 'ETH — paid by you');
+  assert.match(doc.querySelector('#quoteState').textContent, /Recipient receives 25\.00 USDC on Monad — guaranteed/);
 });
 
 test('the payer approves in the wallet, the source hash is recorded, and Settled appears only from the server', async () => {

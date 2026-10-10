@@ -59,25 +59,27 @@ async function recentAttemptsForPayer(payer) {
   return Array.isArray(rows) ? rows : [];
 }
 
-function toDecimalString(value) {
-  return /^\d+$/.test(String(value ?? '')) ? String(value) : null;
-}
-
-function publicQuoteSummary(quote, network, amountMinor) {
-  const out = quote?.details?.currencyOut;
-  const expected = toDecimalString(out?.amount);
-  const minimum = toDecimalString(out?.minimumAmount);
-  const time = Number.isSafeInteger(quote?.details?.timeEstimate) ? quote.details.timeEstimate : null;
+// Public, display-safe exact-output review. The destination amount, quoted source debit, route
+// cost, and wallet-paid native gas are intentionally distinct so the merchant amount is never
+// mistaken for the sender's total USDC cost.
+function publicQuoteSummary(plan, network) {
   return {
-    send: { amount: policy.formatUsdc(amountMinor), asset: 'USDC' },
+    exactOutput: true,
+    pay: {
+      amount: policy.formatUsdc(plan.sourceAmountMinor),
+      asset: 'USDC',
+      // This is the all-in USDC premium above the exact Monad-USDC output. It is not native gas.
+      routeCost: policy.formatUsdc(plan.routeFeeMinor)
+    },
     sourceNetwork: { key: network.key, name: network.name },
+    networkGas: { asset: network.nativeCurrency, paidBy: 'payer' },
     receive: {
       network: MONAD.name,
       asset: MONAD.asset,
-      expected: expected ? policy.formatUsdc(expected) : null,
-      minimum: minimum ? policy.formatUsdc(minimum) : null
+      requested: policy.formatUsdc(plan.requestedDestinationMinor),
+      guaranteed: true
     },
-    timeEstimateSeconds: time
+    timeEstimateSeconds: plan.timeEstimateSeconds
   };
 }
 
@@ -90,8 +92,9 @@ async function createPaymentQuote({ payer, sourceNetwork, recipientHandle, amoun
   if (!PAYER_RE.test(String(payer || ''))) throw serviceError('Connect an EVM wallet to get a quote.', 'PAYER_INVALID');
   const network = requireLiveSourceNetwork(sourceNetwork);
   const payerLower = payer.toLowerCase();
-  const amountMinor = policy.parseUsdcAmount(amount);
-  policy.assertPerPaymentCap(amountMinor, limits().perPaymentMinor);
+  // The caller's amount is the recipient's required Monad-USDC output. Payer caps are checked
+  // only after Relay has quoted the actual origin-USDC input needed to make that output exact.
+  const requestedDestinationMinor = policy.parseUsdcAmount(amount);
 
   // The recipient is resolved here, from the username only. No wallet can be supplied by the caller.
   let handle;
@@ -102,10 +105,6 @@ async function createPaymentQuote({ payer, sourceNetwork, recipientHandle, amoun
   }
   const recipient = await resolveUsername(handle);
   if (!recipient) throw serviceError('This Handoff username is not registered.', 'RECIPIENT_NOT_FOUND', 404);
-
-  // Daily cap, pre-check. The database re-checks inside a lock when the attempt is reserved.
-  const usedMinor = policy.dailyUsageMinor(await recentAttemptsForPayer(payerLower));
-  policy.assertWithinDailyCap({ amountMinor, usedMinor, dailyMinor: limits().dailyMinor });
 
   const chains = await relay.getChains();
   const origin = relay.findChain(chains, network.chainId);
@@ -126,8 +125,13 @@ async function createPaymentQuote({ payer, sourceNetwork, recipientHandle, amoun
     destinationChainId: MONAD.chainId,
     originCurrency: originUsdc.address,
     destinationCurrency: MONAD.usdcAddress,
-    amount: amountMinor.toString(),
-    tradeType: 'EXACT_INPUT',
+    // For merchant checkout, amount is the fixed Monad-USDC output in its smallest units.
+    amount: requestedDestinationMinor.toString(),
+    tradeType: 'EXACT_OUTPUT',
+    // Never subsidize a merchant route: payer pays the quoted source-USDC route costs.
+    subsidizeFees: false,
+    // Relay sends any exact-output swap surplus to the solver rather than the merchant.
+    enableTrueExactOutput: true,
     // Protocol data is required to verify the order locally before anything is signed.
     includeProtocolData: true
   });
@@ -139,16 +143,23 @@ async function createPaymentQuote({ payer, sourceNetwork, recipientHandle, amoun
     originUsdc: originUsdc.address.toLowerCase(),
     allowedTargets: relay.relayContractAddresses(origin),
     chains,
-    amountMinor,
+    requestedDestinationMinor,
     monadUsdc: MONAD.usdcAddress,
     monadChainId: MONAD.chainId,
     // The server-resolved recipient. The payer never supplies or edits this.
     recipient: String(recipient.recipient || '').toLowerCase()
   });
-  const summary = publicQuoteSummary(quote, network, amountMinor);
-
   if (!plan.executable) {
     // Preview only: nothing is reserved, and no transaction can be submitted for this quote.
+    // Do not describe an unverified quote as a payment amount or an output guarantee.
+    const previewSummary = {
+      exactOutput: true,
+      pay: { amount: null, asset: 'USDC', routeCost: null },
+      sourceNetwork: { key: network.key, name: network.name },
+      networkGas: { asset: network.nativeCurrency, paidBy: 'payer' },
+      receive: { network: MONAD.name, asset: MONAD.asset, requested: policy.formatUsdc(requestedDestinationMinor), guaranteed: false },
+      timeEstimateSeconds: null
+    };
     return {
       executable: false,
       status: 'quote_preview',
@@ -157,10 +168,18 @@ async function createPaymentQuote({ payer, sourceNetwork, recipientHandle, amoun
       message: plan.message,
       paymentId: null,
       expiresAt: null,
-      quote: summary,
+      quote: previewSummary,
       steps: []
     };
   }
+
+  // Enforce caps on Relay's signed source input, not the requested merchant output. The database
+  // repeats these checks in its payer-scoped reservation lock.
+  const quotedSourceMinor = BigInt(plan.sourceAmountMinor);
+  policy.assertPerPaymentCap(quotedSourceMinor, limits().perPaymentMinor);
+  const usedMinor = policy.dailyUsageMinor(await recentAttemptsForPayer(payerLower));
+  policy.assertWithinDailyCap({ amountMinor: quotedSourceMinor, usedMinor, dailyMinor: limits().dailyMinor });
+  const summary = publicQuoteSummary(plan, network);
 
   const expiresAt = new Date(Date.now() + QUOTE_TTL_MS).toISOString();
   let row;
@@ -173,7 +192,10 @@ async function createPaymentQuote({ payer, sourceNetwork, recipientHandle, amoun
         p_recipient_wallet_id: recipient.walletId,
         p_source_chain_id: network.chainId,
         p_source_currency: originUsdc.address.toLowerCase(),
-        p_source_amount: amountMinor.toString(),
+        // Source amount is Relay's signed payer debit. It drives all cap accounting.
+        p_source_amount: plan.sourceAmountMinor,
+        p_requested_destination_amount: plan.requestedDestinationMinor,
+        p_quoted_route_fee_amount: plan.routeFeeMinor,
         p_minimum_destination_amount: plan.minimumDestinationMinor,
         p_relay_request_id: plan.requestId,
         p_quote_expires_at: expiresAt,
@@ -304,7 +326,7 @@ function failureCodeFrom(relayStatus) {
 }
 
 // Monad verdicts that mean the chain contradicts Relay's success. Anything else is treated as "not yet".
-const DEFINITIVE_SETTLEMENT_FAILURES = new Set(['TRANSACTION_REVERTED', 'NO_USDC_TRANSFER_TO_RECIPIENT', 'AMOUNT_BELOW_MINIMUM']);
+const DEFINITIVE_SETTLEMENT_FAILURES = new Set(['TRANSACTION_REVERTED', 'NO_USDC_TRANSFER_TO_RECIPIENT', 'AMOUNT_BELOW_REQUESTED', 'AMOUNT_ABOVE_REQUESTED']);
 
 // Advances the receipt from Relay's status. Settlement is accepted only after Monad verification.
 async function refreshAttempt(attempt, recipientWallet) {
@@ -318,7 +340,15 @@ async function refreshAttempt(attempt, recipientWallet) {
   }
 
   const target = receiptStateForRelayStatus(relayStatus.status);
-  const base = { relay_status: relayStatus.status || null };
+  // Once Relay has indexed a confirmed/pending/successful intent, the signed deposit is the
+  // actual source-USDC debit. It is persisted separately from the original merchant output.
+  const sourceWasConfirmed = inbound.includes(sourceHash) || ['depositing', 'pending', 'submitted', 'delayed', 'success'].includes(relayStatus.status);
+  const base = {
+    relay_status: relayStatus.status || null,
+    ...(sourceWasConfirmed && !attempt.actual_source_amount
+      ? { actual_source_amount: attempt.quoted_source_amount || attempt.source_amount }
+      : {})
+  };
 
   if (relayStatus.status === 'failure') return { ...base, status: 'failed', failure_code: failureCodeFrom(relayStatus) };
   if (relayStatus.status === 'refund') return { ...base, status: 'refunded', failure_code: failureCodeFrom(relayStatus) };
@@ -338,7 +368,8 @@ async function refreshAttempt(attempt, recipientWallet) {
   const verdict = await verifyMonadSettlement({
     txHash: destinationHash,
     recipient: recipientWallet,
-    minimumMinor: attempt.minimum_destination_amount,
+    // Exact-output receipts settle only when Monad received exactly the requested amount.
+    requiredMinor: attempt.requested_destination_amount || attempt.minimum_destination_amount,
     monadUsdc: MONAD.usdcAddress,
     monadChainId: MONAD.chainId,
     rpcUrl: config.monad.rpcUrl

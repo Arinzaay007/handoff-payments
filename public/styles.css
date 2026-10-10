@@ -93,3 +93,8 @@ body.public-mode .public-notfound { display:flex; }
 .receipt-steps li.failed { color: #ffc4c4; font-weight: 700; }
 .receipt-steps li.failed span { background: #ff8a8a; border-color: #ff8a8a; }
 .legacy-export-frame{margin-top:14px;text-align:left;min-height:0}.legacy-export-frame:empty{display:none}
+
+/* Exact-output checkout: recipient value, payer USDC quote, and native gas are deliberately
+   separate so route costs cannot be mistaken for a merchant deduction. */
+.quote-card.exact-output .quote-gas { border-top: 1px solid rgba(166,211,167,.18); margin-top: 11px; padding-top: 11px; }
+.quote-card.exact-output .quote-gas b { color: #ffd99c; }

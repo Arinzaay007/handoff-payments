@@ -1,5 +1,7 @@
-// Test-only fixtures: a Relay-shaped quote whose protocol.v2 order is hashed with the real settlement
-// SDK, so the verifier under test runs the same checks it would run against Relay's responses.
+// Test-only fixtures: a Relay-shaped EXACT_OUTPUT quote whose protocol.v2 order is hashed with the
+// real settlement SDK, so the verifier under test runs the same checks it would run against Relay's
+// response. `amountMinor` is the requested Monad-USDC output; `sourceAmountMinor` is Relay's live
+// payer input quote and is intentionally different by default.
 const { encodeFunctionData, parseAbi } = require('viem');
 const { getOrderId } = require('@relay-protocol/settlement-sdk');
 
@@ -32,18 +34,22 @@ function chainsFixture() {
 }
 
 /**
- * Builds a quote. Options let tests break exactly one property at a time.
+ * Builds a validated exact-output quote. Options let tests break exactly one property at a time.
  */
 function quoteFixture({
   payer,
   recipient,
+  // Desired Monad USDC output.
   amountMinor = 25_000_000n,
-  minimumMinor = 24_000_000n,
+  // Relay's live source-USDC debit, including route costs.
+  sourceAmountMinor = 25_500_000n,
+  minimumMinor = amountMinor,
+  expectedMinor = amountMinor,
   deadline = Math.floor(Date.now() / 1000) + 600,
   withProtocol = true,
   depositRecipient,
   depositTo = DEPOSITORY,
-  depositAmount = amountMinor,
+  depositAmount = sourceAmountMinor,
   depositId,
   depositor,
   nativeValue = '0',
@@ -55,10 +61,10 @@ function quoteFixture({
     solverChainId: 'monad',
     solver: SOLVER,
     salt: `0x${'ab'.repeat(32)}`,
-    inputs: [{ payment: { chainId: 'base', currency: ORIGIN_USDC, amount: amountMinor.toString(), weight: '1' }, refunds: [] }],
+    inputs: [{ payment: { chainId: 'base', currency: ORIGIN_USDC, amount: sourceAmountMinor.toString(), weight: '1' }, refunds: [] }],
     output: {
       chainId: 'monad',
-      payments: [{ recipient, currency: MONAD_USDC, minimumAmount: minimumMinor.toString(), expectedAmount: '24500000' }],
+      payments: [{ recipient, currency: MONAD_USDC, minimumAmount: minimumMinor.toString(), expectedAmount: expectedMinor.toString() }],
       calls: [],
       deadline,
       extraData: '0x'
@@ -78,7 +84,7 @@ function quoteFixture({
   const approve = encodeFunctionData({
     abi: parseAbi(['function approve(address spender, uint256 amount)']),
     functionName: 'approve',
-    args: [approveSpender, amountMinor]
+    args: [approveSpender, sourceAmountMinor]
   });
 
   const quote = {
@@ -88,8 +94,8 @@ function quoteFixture({
       { id: 'deposit', action: 'Deposit', kind: 'transaction', items: [{ status: 'incomplete', data: { from: payer, to: depositTo, data: deposit, value: nativeValue, chainId: 8453 } }] }
     ],
     details: {
-      currencyIn: { amount: amountMinor.toString() },
-      currencyOut: { amount: '24500000', minimumAmount: minimumMinor.toString() },
+      currencyIn: { amount: sourceAmountMinor.toString() },
+      currencyOut: { amount: amountMinor.toString(), minimumAmount: minimumMinor.toString() },
       timeEstimate: 45
     }
   };
@@ -99,7 +105,7 @@ function quoteFixture({
         orderId,
         orderData,
         orderSignature: `0x${'11'.repeat(65)}`,
-        paymentDetails: { chainId: 'base', depository: DEPOSITORY, currency: ORIGIN_USDC, amount: amountMinor.toString() }
+        paymentDetails: { chainId: 'base', depository: DEPOSITORY, currency: ORIGIN_USDC, amount: sourceAmountMinor.toString() }
       }
     };
   }

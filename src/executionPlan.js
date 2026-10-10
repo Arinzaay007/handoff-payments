@@ -2,12 +2,12 @@
 // Anything that cannot be verified fails closed to "Quote preview only". The browser only ever signs
 // steps that pass every check here. Handoff never signs, and never holds a key.
 //
-// Verification follows Relay's input-validation guide for protocol.v2 quotes:
+// Exact-output verification follows Relay's protocol.v2 input-validation guide:
 //   1. Recompute the order ID from orderData with @relay-protocol/settlement-sdk and compare it.
-//   2. Check the order's input (origin USDC, amount) and output (Monad USDC, server-resolved recipient,
-//      minimumAmount, deadline) against what Handoff asked for.
+//   2. Check the order's input (origin USDC and Relay-quoted payer amount) and output (the exact
+//      requested Monad USDC amount and the server-resolved recipient).
 //   3. Pin the deposit to the canonical depository from GET /chains, and require the deposit call to
-//      commit to the verified order ID, the payer, the input token, and the exact input amount.
+//      commit to the verified order ID, the payer, the origin token, and the exact quoted source input.
 
 const { getOrderId } = require('@relay-protocol/settlement-sdk');
 const { decodeFunctionData, parseAbi } = require('viem');
@@ -54,15 +54,15 @@ const REASONS = Object.freeze({
   DEPOSITORY: 'DEPOSITORY_MISMATCH',
   DEPOSIT_CALL: 'DEPOSIT_CALL_MISMATCH',
   ORIGIN_CURRENCY: 'ORIGIN_CURRENCY_MISMATCH',
-  MISSING_MINIMUM: 'MISSING_MINIMUM_OUTPUT',
+  SOURCE_AMOUNT: 'SOURCE_QUOTE_MISMATCH',
+  EXACT_OUTPUT: 'EXACT_OUTPUT_NOT_GUARANTEED',
   DESTINATION: 'DESTINATION_MISMATCH',
   RECIPIENT: 'RECIPIENT_MISMATCH',
-  AMOUNT: 'QUOTE_AMOUNT_MISMATCH',
   DESTINATION_CALLS: 'DESTINATION_CALLS_UNSUPPORTED',
   REQUEST_ID: 'MISSING_REQUEST_ID'
 });
 
-const PREVIEW_MESSAGE = 'Quote preview only. Relay did not return an executable transaction for this route, so Handoff cannot submit a payment for it.';
+const PREVIEW_MESSAGE = 'Quote preview only. Relay could not guarantee the requested Monad USDC output with an executable transaction, so Handoff cannot submit this payment.';
 
 function lower(value) {
   return typeof value === 'string' ? value.toLowerCase() : '';
@@ -74,6 +74,10 @@ function isAddress(value) {
 
 function digits(value) {
   return typeof value === 'string' ? /^\d+$/.test(value) : typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function positiveDigits(value) {
+  return digits(value) && BigInt(value) > 0n;
 }
 
 // The spender in an ERC-20 approve(address,uint256) call, or null if the calldata is not an approve.
@@ -108,8 +112,9 @@ function protocolRegistry(chains) {
   return { vmByProtocolId, depositoryByProtocolId, protocolIdByEvmChain };
 }
 
-// Verifies the order itself: ID, input, output, recipient, minimum, deadline, and the canonical depository.
-function verifyProtocolOrder({ v2, registry, originChainId, originUsdc, monadChainId, monadUsdc, recipient, amountMinor, nowSeconds }) {
+// Verifies the order itself: ID, quoted source input, exact destination output, recipient, deadline,
+// and canonical depository. The requested amount is destination output — never the payer's source input.
+function verifyProtocolOrder({ v2, registry, originChainId, originUsdc, monadChainId, monadUsdc, recipient, requestedDestinationMinor, nowSeconds }) {
   if (!v2 || typeof v2 !== 'object' || !HASH32_RE.test(String(v2.orderId || '')) || !v2.orderData) {
     return { ok: false, reason: REASONS.PROTOCOL_MISSING };
   }
@@ -127,12 +132,15 @@ function verifyProtocolOrder({ v2, registry, originChainId, originUsdc, monadCha
   if (inputs.length !== 1 || !inputs[0]?.payment) return { ok: false, reason: REASONS.ORDER_SHAPE };
   const payment = inputs[0].payment;
 
-  // Input: the origin chain and origin USDC, for exactly the amount Handoff asked for.
+  // Relay chooses this source amount for an exact destination output. It is the amount reserved
+  // against payer limits and the exact amount the source deposit must commit to.
   if (payment.chainId !== registry.protocolIdByEvmChain[originChainId]) return { ok: false, reason: REASONS.CHAIN_MISMATCH };
   if (lower(payment.currency) !== originUsdc) return { ok: false, reason: REASONS.ORIGIN_CURRENCY };
-  if (!digits(payment.amount) || BigInt(payment.amount) !== amountMinor) return { ok: false, reason: REASONS.AMOUNT };
+  if (!positiveDigits(payment.amount)) return { ok: false, reason: REASONS.SOURCE_AMOUNT };
 
-  // Output: Monad USDC to the server-resolved recipient, with a minimum we can verify on-chain later.
+  // Exact merchant output: Relay's signed minimum must be exactly what was requested. When an
+  // expectedAmount is present it must agree too; true exact output routes keep surplus away from
+  // the recipient, and final Monad verification below requires equality as a second defence.
   const output = order.output || {};
   if (output.chainId !== registry.protocolIdByEvmChain[monadChainId]) return { ok: false, reason: REASONS.DESTINATION };
   const outputs = Array.isArray(output.payments) ? output.payments : [];
@@ -140,7 +148,12 @@ function verifyProtocolOrder({ v2, registry, originChainId, originUsdc, monadCha
   const out = outputs[0];
   if (lower(out.currency) !== monadUsdc) return { ok: false, reason: REASONS.DESTINATION };
   if (lower(out.recipient) !== lower(recipient)) return { ok: false, reason: REASONS.RECIPIENT };
-  if (!digits(out.minimumAmount) || BigInt(out.minimumAmount) <= 0n) return { ok: false, reason: REASONS.MISSING_MINIMUM };
+  if (!positiveDigits(out.minimumAmount) || BigInt(out.minimumAmount) !== requestedDestinationMinor) {
+    return { ok: false, reason: REASONS.EXACT_OUTPUT };
+  }
+  if (out.expectedAmount !== undefined && (!positiveDigits(out.expectedAmount) || BigInt(out.expectedAmount) !== requestedDestinationMinor)) {
+    return { ok: false, reason: REASONS.EXACT_OUTPUT };
+  }
   if (Array.isArray(output.calls) && output.calls.length > 0) return { ok: false, reason: REASONS.DESTINATION_CALLS };
   if (!digits(output.deadline) || Number(output.deadline) <= nowSeconds) return { ok: false, reason: REASONS.ORDER_EXPIRED };
 
@@ -150,13 +163,13 @@ function verifyProtocolOrder({ v2, registry, originChainId, originUsdc, monadCha
   const claimed = lower(v2.paymentDetails?.depository);
   if (claimed !== depository) return { ok: false, reason: REASONS.DEPOSITORY };
   if (v2.paymentDetails?.amount !== undefined && String(v2.paymentDetails.amount) !== String(payment.amount)) {
-    return { ok: false, reason: REASONS.AMOUNT };
+    return { ok: false, reason: REASONS.SOURCE_AMOUNT };
   }
 
-  return { ok: true, orderId: computed, depository, payment, minimumAmount: String(out.minimumAmount) };
+  return { ok: true, orderId: computed, depository, payment, requestedDestinationAmount: String(out.minimumAmount) };
 }
 
-// The deposit call must commit to the verified order: depositor, token, exact amount, and order ID.
+// The deposit call must commit to the verified order: depositor, token, exact quoted input, and order ID.
 function verifyDepositCall({ data, verified, payer }) {
   let decoded;
   try {
@@ -168,7 +181,7 @@ function verifyDepositCall({ data, verified, payer }) {
   const [depositor, token, amount, id] = decoded.args;
   if (lower(depositor) !== payer) return REASONS.FROM_MISMATCH;
   if (lower(token) !== lower(verified.payment.currency)) return REASONS.DEPOSIT_CALL;
-  if (BigInt(amount) !== BigInt(verified.payment.amount)) return REASONS.AMOUNT;
+  if (BigInt(amount) !== BigInt(verified.payment.amount)) return REASONS.SOURCE_AMOUNT;
   if (lower(id) !== lower(verified.orderId)) return REASONS.DEPOSIT_CALL;
   return null;
 }
@@ -181,18 +194,24 @@ function verifyDepositCall({ data, verified, payer }) {
  * @param {string} input.originUsdc     Origin USDC contract (lowercase), from GET /chains.
  * @param {Set<string>} input.allowedTargets  Relay-published contracts on the origin chain (lowercase).
  * @param {Array}  input.chains         Parsed GET /chains response.
- * @param {bigint} input.amountMinor    Requested source amount, six-decimal minor units.
+ * @param {bigint} input.requestedDestinationMinor Desired Monad-USDC output, six-decimal minor units.
  * @param {string} input.monadUsdc      Monad USDC contract (lowercase).
  * @param {number} input.monadChainId   Monad EVM chain ID (143).
  * @param {string} input.recipient      Server-resolved recipient wallet (lowercase). Never from the payer.
  * @param {number} [input.nowSeconds]
  */
 function buildExecutionPlan(input) {
-  const { quote, payer, originChainId, originUsdc, allowedTargets, chains, amountMinor, monadUsdc, monadChainId, recipient } = input;
+  const { quote, payer, originChainId, originUsdc, allowedTargets, chains, monadUsdc, monadChainId, recipient } = input;
+  // amountMinor is accepted as a temporary test/backwards-compatible alias only. Production calls
+  // use the explicit name so it cannot be mistaken for a payer input amount.
+  const requestedDestinationMinor = input.requestedDestinationMinor ?? input.amountMinor;
   const nowSeconds = Number.isSafeInteger(input.nowSeconds) ? input.nowSeconds : Math.floor(Date.now() / 1000);
 
   if (!quote || typeof quote !== 'object' || !HASH32_RE.test(String(quote.requestId || ''))) {
     return notExecutable(REASONS.REQUEST_ID);
+  }
+  if (typeof requestedDestinationMinor !== 'bigint' || requestedDestinationMinor <= 0n) {
+    return notExecutable(REASONS.EXACT_OUTPUT);
   }
 
   const registry = protocolRegistry(chains);
@@ -204,19 +223,21 @@ function buildExecutionPlan(input) {
     monadChainId,
     monadUsdc,
     recipient: lower(recipient),
-    amountMinor,
+    requestedDestinationMinor,
     nowSeconds
   });
   if (!verified.ok) return notExecutable(verified.reason);
 
-  // The quote's summary must agree with the signed order. The order's minimum is what settlement enforces.
+  // Quote presentation data must agree with the signed order. No executable path exists unless
+  // Relay explicitly quotes the requested exact output and the matching source debit.
   const out = quote.details?.currencyOut;
-  if (out?.minimumAmount !== undefined && String(out.minimumAmount) !== verified.minimumAmount) {
-    return notExecutable(REASONS.MISSING_MINIMUM);
-  }
   const currencyIn = quote.details?.currencyIn?.amount;
-  if (currencyIn !== undefined && (!digits(currencyIn) || String(currencyIn) !== String(amountMinor))) {
-    return notExecutable(REASONS.AMOUNT);
+  if (!positiveDigits(currencyIn) || String(currencyIn) !== String(verified.payment.amount)) {
+    return notExecutable(REASONS.SOURCE_AMOUNT);
+  }
+  if (!positiveDigits(out?.amount) || BigInt(out.amount) !== requestedDestinationMinor
+    || !positiveDigits(out?.minimumAmount) || BigInt(out.minimumAmount) !== requestedDestinationMinor) {
+    return notExecutable(REASONS.EXACT_OUTPUT);
   }
 
   const steps = Array.isArray(quote.steps) ? quote.steps : [];
@@ -268,6 +289,8 @@ function buildExecutionPlan(input) {
   // The deposit must be the last transaction. Approvals come before it.
   if (planned[planned.length - 1].role !== 'source') return notExecutable(REASONS.NO_SOURCE_STEP);
 
+  const sourceAmountMinor = BigInt(verified.payment.amount);
+  const routeFeeMinor = sourceAmountMinor > requestedDestinationMinor ? sourceAmountMinor - requestedDestinationMinor : 0n;
   return {
     executable: true,
     reason: null,
@@ -285,8 +308,13 @@ function buildExecutionPlan(input) {
       data: step.data,
       value: '0x0'
     })),
-    minimumDestinationMinor: verified.minimumAmount,
-    expectedDestinationMinor: digits(out?.amount) ? String(out.amount) : null,
+    // The recipient's fixed output, the quote's payer debit, and route cost are deliberately
+    // separate. sourceAmountMinor is the value that policy caps must use.
+    requestedDestinationMinor: requestedDestinationMinor.toString(),
+    minimumDestinationMinor: requestedDestinationMinor.toString(),
+    sourceAmountMinor: sourceAmountMinor.toString(),
+    routeFeeMinor: routeFeeMinor.toString(),
+    expectedDestinationMinor: requestedDestinationMinor.toString(),
     timeEstimateSeconds: digits(quote.details?.timeEstimate) ? Number(quote.details.timeEstimate) : null
   };
 }

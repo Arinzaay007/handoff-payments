@@ -97,3 +97,8 @@ Run these files, in order, in the Supabase SQL Editor:
 
 Never place `RELAY_API_KEY` or any Supabase key in a browser-visible file, `render.yaml`, or Git.
 
+## Exact-output merchant payments
+
+Handoff treats a checkout amount as the recipient’s required **Monad USDC output**. The server requests Relay `EXACT_OUTPUT` quotes with `enableTrueExactOutput: true` and no fee sponsorship. The sender pays the live quoted source-USDC debit and separately pays source-chain native gas in their wallet.
+
+Before enabling payments, apply migrations `0001` → `0004` in order. Migration `0004_exact_output_merchant_settlement.sql` is required: it persists the requested output, quoted/confirmed payer debit, route cost, and final destination amount separately, and rejects an exact-output settlement unless Monad received exactly the requested USDC amount. Per-payment and daily caps apply to Relay’s quoted payer source amount.
