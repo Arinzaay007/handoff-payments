@@ -92,3 +92,4 @@ body.public-mode .public-notfound { display:flex; }
 .receipt-steps li.active span { background: #d9ff8c; border-color: #d9ff8c; box-shadow: 0 0 10px #d9ff8c; }
 .receipt-steps li.failed { color: #ffc4c4; font-weight: 700; }
 .receipt-steps li.failed span { background: #ff8a8a; border-color: #ff8a8a; }
+.legacy-export-frame{margin-top:14px;text-align:left;min-height:0}.legacy-export-frame:empty{display:none}
