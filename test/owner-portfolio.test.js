@@ -89,9 +89,9 @@ test('the balance is the on-chain Monad USDC read, never a database total', asyn
   // The preload answers balanceOf with 1234567890 minor units = 1234.56 USDC.
   assert.equal(balance.amount, '1234.56');
 
-  // The chain read, not the activity sum (25 + 10 + 5 = 40.00).
-  const activityTotal = result.json.activity.reduce((sum, item) => sum + Number(item.send.amount), 0);
-  assert.equal(activityTotal, 40);
+  // The chain read, not the requested merchant-output activity sum (24 + 9.9 + 4.9 = 38.80).
+  const activityTotal = result.json.activity.reduce((sum, item) => sum + Number(item.receive.requested), 0);
+  assert.equal(activityTotal, 38.8);
   assert.notEqual(balance.amount, activityTotal.toFixed(2));
 
   // The reader verified chain ID 143 first, then called balanceOf on the Monad USDC contract.

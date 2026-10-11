@@ -49,7 +49,7 @@ test('username-only claim derives the recipient from the embedded wallet credent
 
   assert.equal(result.status, 201);
   assert.equal(result.json.profile.username, 'ada_01');
-  assert.equal(result.json.profile.wallet, EMBEDDED.toLowerCase());
+  assert.equal(Object.hasOwn(result.json.profile, 'wallet'), false, 'the embedded destination never reaches the browser');
 
   const calls = rpcCalls(server.outboundLog());
   assert.equal(calls.length, before + 1);

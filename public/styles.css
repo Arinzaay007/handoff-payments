@@ -93,3 +93,19 @@ body.public-mode .public-notfound { display:flex; }
 .receipt-steps li.failed { color: #ffc4c4; font-weight: 700; }
 .receipt-steps li.failed span { background: #ff8a8a; border-color: #ff8a8a; }
 .legacy-export-frame{margin-top:14px;text-align:left;min-height:0}.legacy-export-frame:empty{display:none}
+
+/* Exact-output checkout: recipient value, payer USDC quote, and native gas are deliberately
+   separate so route costs cannot be mistaken for a merchant deduction. */
+.quote-card.exact-output .quote-gas { border-top: 1px solid rgba(166,211,167,.18); margin-top: 11px; padding-top: 11px; }
+.quote-card.exact-output .quote-gas b { color: #ffd99c; }
+
+/* Recipient share page: a completed, single-purpose alternative to unimplemented request links. */
+.share-page-card { max-width:720px; min-height:300px; padding:32px; position:relative; overflow:hidden; }
+.share-page-card:before { content:""; position:absolute; width:290px; height:290px; right:-100px; top:-115px; border:1px solid rgba(205,255,138,.24); border-radius:50%; box-shadow:0 0 0 28px rgba(205,255,138,.045),0 0 0 56px rgba(205,255,138,.025); }
+.share-page-card > * { position:relative; z-index:1; }
+.share-page-card h2 { font-size:30px; margin:9px 0 8px; }
+.share-page-card p { max-width:480px; margin:0 0 19px; color:#9bb29e; font-size:13px; line-height:1.5; }
+.share-page-icon { width:45px; height:45px; display:grid; place-items:center; margin-bottom:24px; border-radius:14px; color:#14321a; background:linear-gradient(145deg,#dfff8c,#7de8a3); font-size:23px; box-shadow:0 0 24px #caff7a55; }
+.share-page-link { width:min(100%,520px); margin:19px 0 15px; padding:12px 14px; border:1px solid #294633; border-radius:9px; background:#0a110d; color:#d5ffbb; font:12px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.share-page-card .button[disabled] { opacity:.48; cursor:not-allowed; transform:none; }
+@media(max-width:780px) { .share-page-card { min-height:270px; padding:24px; }.share-page-card h2 { font-size:26px; } }

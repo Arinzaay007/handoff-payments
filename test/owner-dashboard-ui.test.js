@@ -1,7 +1,7 @@
 // Drives the real public/index.html and public/app.js in jsdom with a fake Dynamic client and a
-// fake API. Covers the signed-in owner dashboard: the verified Monad USDC balance (never a fake
-// zero), verified recipient receipt activity, and Identity → Export wallet key, which only opens
-// Dynamic's secure reveal and clears its frame when the modal closes.
+// fake API. Covers the signed-in owner dashboard: the verified payment balance (never a fake
+// zero), simple recipient payment activity, and a recipient identity UI that never exposes
+// a wallet address, seed phrase, private key, settings panel, or export workflow.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -16,7 +16,6 @@ const MORGAN_PROFILE = {
   id: '22222222-2222-4222-8222-222222222222',
   username: 'morgan',
   displayName: 'Morgan Ellis',
-  wallet: '0x7777777777777777777777777777777777777777'
 };
 
 const SETTLED_ITEM = {
@@ -25,8 +24,7 @@ const SETTLED_ITEM = {
   label: 'Settled as USDC on Monad',
   final: true,
   sourceNetwork: { key: 'base', name: 'Base' },
-  send: { amount: '25.00', asset: 'USDC' },
-  receive: { network: 'Monad', asset: 'USDC', minimum: '24.00', amount: '24.50' },
+  receive: { network: 'Monad', asset: 'USDC', requested: '24.50', amount: '24.50' },
   sourceTxHash: `0x${'ab'.repeat(32)}`,
   destinationTxHash: `0x${'cd'.repeat(32)}`,
   settlementVerified: true,
@@ -37,25 +35,14 @@ const SETTLED_ITEM = {
 
 function fakeDynamic() {
   const dyn = {
-    calls: { openAuth: 0, retry: 0, signOut: 0, openWalletSettings: 0, exportWalletKey: 0, clearExportFrame: 0 },
+    calls: { openAuth: 0, retry: 0, signOut: 0 },
     onChange: null,
     token: 'test-access-token',
-    exportError: null,
-    exportResult: undefined,
     initialize: async ({ onChange }) => { dyn.onChange = onChange; },
     openAuth: () => { dyn.calls.openAuth += 1; },
     getToken: () => dyn.token,
     retryWalletSetup: async () => { dyn.calls.retry += 1; },
     signOut: async () => { dyn.calls.signOut += 1; dyn.token = null; },
-    openWalletSettings: () => { dyn.calls.openWalletSettings += 1; },
-    // These stand in for Dynamic's embedded-wallet reveal flow. The real bundle delegates to
-    // useEmbeddedReveal().initExportProcess, which renders the key only in Dynamic's iframe.
-    exportWalletKey: async () => {
-      dyn.calls.exportWalletKey += 1;
-      if (dyn.exportError) throw dyn.exportError;
-      return dyn.exportResult;
-    },
-    clearExportFrame: () => { dyn.calls.clearExportFrame += 1; }
   };
   return dyn;
 }
@@ -125,7 +112,7 @@ async function signInWithPortfolio(portfolioBody, extraRoutes = {}) {
   return loaded;
 }
 
-test('the signed-in dashboard shows the verified Monad USDC balance from /api/me/portfolio', async () => {
+test('the signed-in dashboard shows a confirmed dollar balance from /api/me/portfolio without chain jargon', async () => {
   const { doc } = await signInWithPortfolio({
     balance: { asset: 'USDC', network: 'Monad', chainId: 143, status: 'available', amount: '1234.56', checkedAt: '2026-10-10T12:00:00.000Z' },
     activity: [SETTLED_ITEM],
@@ -133,7 +120,8 @@ test('the signed-in dashboard shows the verified Monad USDC balance from /api/me
   });
 
   await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'the real balance amount');
-  assert.match(doc.querySelector('#balanceSub').textContent, /Verified on-chain balance/);
+  assert.match(doc.querySelector('#balanceSub').textContent, /Confirmed balance/);
+  assert.equal(/Monad|USDC|on-chain/i.test(doc.querySelector('#overviewPage').textContent), false, 'recipient dashboard hides payment-rail implementation details');
   assert.equal(doc.querySelector('#balanceAmount').textContent.includes('0.00'), false);
 });
 
@@ -144,30 +132,31 @@ test('the dashboard shows verified recipient receipt activity, and nothing befor
     checkedAt: '2026-10-10T12:00:00.000Z'
   });
 
-  await waitFor(() => doc.querySelector('#activityList').textContent.includes('Settled as USDC on Monad'), 'settled receipt');
+  await waitFor(() => doc.querySelector('#activityList').textContent.includes('Payment received'), 'completed payment');
   const list = doc.querySelector('#activityList');
-  assert.match(list.textContent, /\+24\.50 USDC/);
-  assert.match(list.textContent, /Base → Monad/);
-  assert.match(list.textContent, /Verified/);
+  assert.match(list.textContent, /\+\$24\.50/);
+  assert.match(list.textContent, /Payment confirmed/);
+  assert.match(list.textContent, /Complete/);
+  assert.equal(/Base|Monad|USDC|Relay|Settled/i.test(list.textContent), false, 'recipient activity is expressed only as a payment');
   assert.equal(/awaiting|quote received/i.test(list.textContent), false);
   // The public privacy model holds on the dashboard too: no payer address anywhere.
   assert.equal(/0x1111/i.test(doc.querySelector('#overviewPage').textContent), false);
 });
 
-test('when the Monad RPC cannot be read the dashboard says syncing/unavailable, never a fake zero', async () => {
+test('when the balance cannot be read the dashboard explains the state without a fake zero or chain jargon', async () => {
   const { doc } = await signInWithPortfolio({
     balance: { asset: 'USDC', network: 'Monad', chainId: 143, status: 'unavailable', amount: null, checkedAt: '2026-10-10T12:00:00.000Z' },
     activity: [SETTLED_ITEM],
     checkedAt: '2026-10-10T12:00:00.000Z'
   });
 
-  await waitFor(() => /syncing\/unavailable/i.test(doc.querySelector('#balanceSub').textContent), 'the unavailable state');
+  await waitFor(() => /could not refresh your balance/i.test(doc.querySelector('#balanceSub').textContent), 'the unavailable state');
   const amount = doc.querySelector('#balanceAmount').textContent.trim();
   assert.equal(amount, '—', 'no number is shown when the chain cannot be read');
   assert.equal(/0\.00|^0$|^0 /.test(amount), false, 'never a fake zero balance');
   assert.match(doc.querySelector('#balanceSub').textContent, /not a zero balance/);
   // Activity is independent of the RPC read.
-  assert.match(doc.querySelector('#activityList').textContent, /Settled as USDC on Monad/);
+  assert.match(doc.querySelector('#activityList').textContent, /Payment received/);
 });
 
 test('before the portfolio answers, the dashboard says syncing rather than zero', async () => {
@@ -178,9 +167,9 @@ test('before the portfolio answers, the dashboard says syncing rather than zero'
     return { body: { balance: { status: 'available', amount: '5.00' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z' } };
   });
 
-  await waitFor(() => /Syncing verified balance/i.test(doc.querySelector('#balanceSub').textContent), 'the syncing state');
+  await waitFor(() => /Checking your confirmed balance/i.test(doc.querySelector('#balanceSub').textContent), 'the syncing state');
   assert.equal(doc.querySelector('#balanceAmount').textContent.trim(), '—');
-  assert.match(doc.querySelector('#activityList').textContent, /Syncing activity/);
+  assert.match(doc.querySelector('#activityList').textContent, /Checking for payments/);
   release();
   await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('5.00'), 'the real balance');
 });
@@ -197,179 +186,30 @@ test('the public /@username page never loads the owner portfolio', async () => {
   assert.equal(doc.querySelector('#balanceAmount').textContent.trim(), '—');
 });
 
-test('secure Dynamic wallet settings require a signed-in Handoff owner', async () => {
+test('recipient identity uses a simple sign-in surface without an address, settings, or key-export control', async () => {
+  const { doc } = await signInWithPortfolio({
+    balance: { status: 'available', amount: '1234.56' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z'
+  });
+  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'signed in');
+
+  assert.equal(doc.querySelector('#walletAddress'), null);
+  assert.equal(doc.querySelector('#copyWallet'), null);
+  assert.equal(doc.querySelector('#openWalletSettings'), null);
+  assert.equal(doc.querySelector('#exportWalletKey'), null);
+  assert.equal(doc.querySelector('#exportKeyModal'), null);
+  assert.match(doc.querySelector('#profileHandle').textContent, /Ready to get paid/);
+  assert.match(doc.querySelector('#identityPage').textContent, /passkey or email/i);
+  assert.equal(/Monad|USDC|wallet|EVM|Relay/i.test(doc.querySelector('#identityPage').textContent), false);
+  assert.equal(doc.querySelector('#sharePaidPage').disabled, false, 'the only recipient share action is ready to use');
+});
+
+test('signed-out recipients are offered hosted secure sign-in without a wallet or key prompt', async () => {
   const { doc, dyn } = await loadApp();
-  doc.querySelector('#openWalletSettings').click();
+  doc.querySelector('#openIdentity').click();
   await settle();
-
-  assert.equal(doc.querySelector('#authModal').classList.contains('visible'), true, 'signed-out visitors get sign-in');
-  assert.equal(dyn.calls.openWalletSettings, 0);
-});
-
-test('Identity delegates wallet settings to Dynamic without changing Morgan\'s wallet', async () => {
-  const { doc, dyn, requests } = await signInWithPortfolio({
-    balance: { status: 'available', amount: '1234.56' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z'
-  });
-  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'signed in');
-  const requestCount = requests.length;
-  const addressBefore = doc.querySelector('#walletAddress').textContent;
-
-  assert.equal(doc.querySelector('#openWalletSettings').textContent, 'Open secure Dynamic wallet settings');
-  doc.querySelector('#openWalletSettings').click();
-  await settle();
-
-  assert.equal(dyn.calls.openWalletSettings, 1);
-  assert.equal(dyn.calls.retry, 0, 'opening settings never asks Dynamic to create a wallet');
-  assert.equal(dyn.calls.exportWalletKey, 0, 'opening settings never starts a key reveal');
-  assert.equal(requests.length, requestCount, 'opening settings sends nothing to Handoff');
-  assert.equal(doc.querySelector('#walletAddress').textContent, addressBefore);
-  assert.equal(addressBefore, '0x7777…7777');
-});
-
-test('unavailable Dynamic wallet settings fail with friendly copy and leave Morgan\'s wallet unchanged', async () => {
-  const { doc, dyn } = await signInWithPortfolio({
-    balance: { status: 'available', amount: '1234.56' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z'
-  });
-  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'signed in');
-  delete dyn.openWalletSettings;
-  const addressBefore = doc.querySelector('#walletAddress').textContent;
-
-  doc.querySelector('#openWalletSettings').click();
-  await waitFor(() => doc.querySelector('#toast').textContent.length > 0, 'friendly settings failure');
-
-  assert.equal(doc.querySelector('#toast').textContent, 'Secure wallet settings are still loading. Try again in a moment.');
-  assert.equal(doc.querySelector('#walletAddress').textContent, addressBefore);
-  assert.equal(dyn.calls.retry, 0);
-  assert.equal(dyn.calls.exportWalletKey, 0);
-});
-
-test('Export wallet key opens only for the signed-in owner', async () => {
-  const signedOut = await loadApp();
-  signedOut.doc.querySelector('#exportWalletKey').click();
-  await settle();
-  assert.equal(signedOut.doc.querySelector('#authModal').classList.contains('visible'), true, 'signed-out visitors get sign-in');
-  assert.equal(signedOut.doc.querySelector('#exportKeyModal').classList.contains('visible'), false);
-  assert.equal(signedOut.dyn.calls.exportWalletKey, 0);
-
-  const { doc, dyn } = await signInWithPortfolio({
-    balance: { status: 'available', amount: '1234.56' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z'
-  });
-  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'signed in');
-  doc.querySelector('#exportWalletKey').click();
-  await settle();
-  assert.equal(doc.querySelector('#exportKeyModal').classList.contains('visible'), true);
-});
-
-test('the export dialog has no input, warns that Handoff never sees the key, and delegates to Dynamic', async () => {
-  const { doc, dyn, requests } = await signInWithPortfolio({
-    balance: { status: 'available', amount: '1234.56' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z'
-  });
-  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'signed in');
-
-  const modal = doc.querySelector('#exportKeyModal');
-  assert.equal(modal.querySelectorAll('input, textarea, select').length, 0, 'nowhere to type or paste a key');
-  assert.match(modal.textContent, /Handoff never sees/);
-  assert.match(modal.textContent, /isolated frame/);
-
-  doc.querySelector('#exportWalletKey').click();
-  await settle();
-  doc.querySelector('#continueExportKey').click();
-  await waitFor(() => dyn.calls.exportWalletKey === 1, 'Dynamic reveal opened');
-  await waitFor(() => !modal.classList.contains('visible'), 'modal closes after the flow');
-  assert.equal(dyn.calls.exportWalletKey, 1);
-  // Handoff never sends key material anywhere.
-  for (const request of requests) {
-    assert.equal(/private|mnemonic|seed/i.test(JSON.stringify(request.body || {})), false);
-  }
-});
-
-test('closing the export dialog clears Dynamic\'s export frame', async () => {
-  const { doc, dyn } = await signInWithPortfolio({
-    balance: { status: 'available', amount: '1234.56' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z'
-  });
-  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'signed in');
-
-  doc.querySelector('#exportWalletKey').click();
-  await settle();
-  assert.equal(dyn.calls.clearExportFrame, 0);
-  doc.querySelector('#exportKeyModal .modal-close').click();
-  await settle();
-  assert.equal(doc.querySelector('#exportKeyModal').classList.contains('visible'), false);
-  assert.equal(dyn.calls.clearExportFrame, 1, 'the Dynamic export frame is cleared on close');
-
-  // Closing through the backdrop clears the frame as well.
-  doc.querySelector('#exportWalletKey').click();
-  await settle();
-  doc.querySelector('#modalBackdrop').click();
-  await settle();
-  assert.equal(dyn.calls.clearExportFrame, 2);
-});
-
-test('a failed Dynamic reveal shows friendly copy and never provider text', async () => {
-  const { doc, dyn } = await signInWithPortfolio({
-    balance: { status: 'available', amount: '1234.56' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z'
-  });
-  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'signed in');
-  dyn.exportError = new Error('Elevated access token required for TokenScope.KEY_EXPORT');
-
-  doc.querySelector('#exportWalletKey').click();
-  await settle();
-  doc.querySelector('#continueExportKey').click();
-  await waitFor(() => doc.querySelector('#toast').textContent.length > 0, 'friendly failure toast');
-
-  const toast = doc.querySelector('#toast').textContent;
-  assert.match(toast, /Key export could not be opened/);
-  assert.equal(/Elevated|TokenScope|Dynamic/i.test(toast), false);
-});
-
-test('a refused secure export authorization shows the denial message and never reveals', async () => {
-  const { doc, dyn } = await signInWithPortfolio({
-    balance: { status: 'available', amount: '1234.56' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z'
-  });
-  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'signed in');
-  // The real bundle rejects with this code before Dynamic's reveal is ever started.
-  dyn.exportError = Object.assign(new Error('Secure export authorization was denied'), { code: 'EXPORT_AUTHORIZATION_DENIED' });
-
-  doc.querySelector('#exportWalletKey').click();
-  await settle();
-  doc.querySelector('#continueExportKey').click();
-  await waitFor(() => doc.querySelector('#toast').textContent.length > 0, 'denial toast');
-
-  assert.equal(doc.querySelector('#toast').textContent, 'Secure export authorization was denied');
-  assert.equal(doc.querySelector('#exportKeyStatus').textContent, 'Secure export authorization was denied');
-  assert.equal(doc.querySelector('#exportKeyModal').classList.contains('visible'), true, 'the owner stays in the dialog to retry');
-  assert.equal(doc.querySelector('#continueExportKey').disabled, false);
-});
-
-test('a legacy wallet reveal keeps the dialog open so the owner can see the secure frame', async () => {
-  const { doc, dyn } = await signInWithPortfolio({
-    balance: { status: 'available', amount: '1234.56' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z'
-  });
-  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'signed in');
-  dyn.exportResult = { mode: 'legacy' };
-
-  doc.querySelector('#exportWalletKey').click();
-  await settle();
-  doc.querySelector('#continueExportKey').click();
-  await waitFor(() => dyn.calls.exportWalletKey === 1, 'legacy reveal started');
-  await settle();
-
-  assert.equal(doc.querySelector('#exportKeyModal').classList.contains('visible'), true);
-  assert.match(doc.querySelector('#exportKeyStatus').textContent, /shown inside the secure frame/);
-  assert.ok(doc.querySelector('#legacyExportFrame'), 'the legacy reveal has a frame inside the dialog');
-  assert.equal(dyn.calls.clearExportFrame, 0, 'the frame is not cleared while the owner is viewing it');
-});
-
-test('a WaaS reveal closes the export dialog once Dynamic finishes', async () => {
-  const { doc, dyn } = await signInWithPortfolio({
-    balance: { status: 'available', amount: '1234.56' }, activity: [], checkedAt: '2026-10-10T12:00:00.000Z'
-  });
-  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('1234.56'), 'signed in');
-  dyn.exportResult = { mode: 'waas' };
-
-  doc.querySelector('#exportWalletKey').click();
-  await settle();
-  doc.querySelector('#continueExportKey').click();
-  await waitFor(() => !doc.querySelector('#exportKeyModal').classList.contains('visible'), 'dialog closes');
-  assert.equal(dyn.calls.exportWalletKey, 1);
+  assert.equal(doc.querySelector('#authModal').classList.contains('visible'), true);
+  assert.match(doc.querySelector('#authModal').textContent, /passkey or your email/i);
+  assert.equal(doc.querySelector('[data-auth-step="start"] input'), null, 'the sign-in step asks for no crypto credential');
+  doc.querySelector('#continueWithEmail').click();
+  assert.equal(dyn.calls.openAuth, 1, 'Dynamic owns passkey/email authentication');
 });

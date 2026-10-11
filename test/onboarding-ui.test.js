@@ -132,7 +132,7 @@ test('after email verification the user sees the provisioning state, then the @u
   assert.equal(w.document.querySelector('#authModal').textContent.includes('0x'), false, 'no address shown during onboarding');
 });
 
-test('claiming sends only { username }, and the profile activates with a shortened wallet only', async () => {
+test('claiming sends only { username }, and the profile activates without displaying an address', async () => {
   let claimBody = null;
   const routes = {
     'GET /api/me': () => ({ body: { profile: null } }),
@@ -141,7 +141,7 @@ test('claiming sends only { username }, and the profile activates with a shorten
       claimBody = request.body;
       return {
         status: 201,
-        body: { profile: { id: 'p1', username: 'ada_lovelace', displayName: 'Ada Lovelace', wallet: WALLET_ADDRESS.toLowerCase() } }
+        body: { profile: { id: 'p1', username: 'ada_lovelace', displayName: 'Ada Lovelace' } }
       };
     }
   };
@@ -158,7 +158,7 @@ test('claiming sends only { username }, and the profile activates with a shorten
   const claimRequest = requests.find(request => request.url === '/api/me/claim');
   assert.equal(claimRequest.headers.Authorization, 'Bearer test-access-token');
   assert.equal(doc.querySelector('#identityHandle').textContent, '@ada_lovelace');
-  assert.equal(doc.querySelector('#walletAddress').textContent, '0xabcd…ef01', 'shortened after activation');
+  assert.equal(doc.querySelector('#walletAddress'), null, 'recipient addresses are never rendered after activation');
 });
 
 test('provisioning that runs long shows Retry wallet setup, and a retry resumes to the claim step', async () => {
@@ -239,7 +239,7 @@ test('a username conflict (409 without a wallet code) stays on the claim step wi
 
 test('a page reload with an existing session restores the identity without opening onboarding', async () => {
   const routes = {
-    'GET /api/me': () => ({ body: { profile: { id: 'p1', username: 'returning_user', displayName: 'Returning', wallet: WALLET_ADDRESS.toLowerCase() } } })
+    'GET /api/me': () => ({ body: { profile: { id: 'p1', username: 'returning_user', displayName: 'Returning' } } })
   };
   const { doc, dyn } = await loadApp({ routes });
   dyn.onChange({ signedIn: true });

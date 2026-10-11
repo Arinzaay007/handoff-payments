@@ -1,16 +1,24 @@
 const { request } = require('./supabase');
 const { validateHandoffHandle } = require('./identity');
 
-function profileResponse(profile, wallet) {
-  if (!profile || !wallet) return null;
+// Browser-safe recipient identity. A Handoff username is the product identity; wallet addresses
+// remain server-internal for settlement and balance reads.
+function publicProfileResponse(profile) {
+  if (!profile) return null;
   return {
     id: profile.id,
     username: profile.username,
     displayName: profile.display_name || profile.username,
     avatarUrl: profile.avatar_url || null,
-    wallet: wallet.wallet_address,
     settlement: { chainId: 143, asset: 'USDC' }
   };
+}
+
+// Server-internal profile with its verified recipient account. Never return this object directly
+// from an HTTP endpoint; use publicProfileResponse() at the boundary.
+function profileWithWallet(profile, wallet) {
+  if (!profile || !wallet) return null;
+  return { ...publicProfileResponse(profile), wallet: wallet.wallet_address };
 }
 
 async function getProfileForSubject(subject) {
@@ -22,7 +30,7 @@ async function getProfileForSubject(subject) {
   const wallets = await request(
     `recipient_wallets?select=wallet_address,chain_id&profile_id=eq.${encodeURIComponent(profile.id)}&is_active=is.true&chain_id=eq.143&limit=1`
   );
-  return profileResponse(profile, wallets?.[0]);
+  return profileWithWallet(profile, wallets?.[0]);
 }
 
 async function claimProfile({ subject, username, displayName, walletAddress }) {
@@ -43,9 +51,8 @@ async function claimProfile({ subject, username, displayName, walletAddress }) {
     username: row.username,
     displayName: row.display_name || row.username,
     avatarUrl: null,
-    wallet: row.wallet_address,
     settlement: { chainId: Number(row.chain_id), asset: 'USDC' }
   };
 }
 
-module.exports = { getProfileForSubject, claimProfile };
+module.exports = { getProfileForSubject, claimProfile, publicProfileResponse };

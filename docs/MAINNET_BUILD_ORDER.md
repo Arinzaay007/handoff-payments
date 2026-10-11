@@ -28,6 +28,6 @@ Add and validate in this order: Solana, TON, Celo, Arbitrum, Optimism, Polygon, 
 - Only registered Handoff usernames are payable in the MVP. Social aliases are deferred.
 - The server, never the browser, resolves a username to its recipient wallet.
 - First launch cap: USDC 25 per transaction and USDC 100 per day per authenticated user.
-- Display recipient name, complete network, input asset, output minimum, fees, route expiry, and recipient before a signature.
+- Display recipient name, source network, **exact requested Monad-USDC output**, live payer source-USDC quote, included route costs, source-native gas paid separately by the sender, and route expiry before a signature. Never present an output minimum as an exact merchant payment.
 - Log sensitive actions: wallet changes, request creation/cancellation, and payment-state transitions.
 - Require an explicit, reviewed wallet-change flow before a public payment page changes recipient.

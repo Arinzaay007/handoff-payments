@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0c1110" />
-  <title>Handoff — Omnichain payment identity</title>
+  <title>Handoff — Simple payments</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -13,69 +13,63 @@
   <div class="app-shell">
     <aside class="sidebar" aria-label="Main navigation">
       <div class="brand"><span class="brand-mark" aria-hidden="true"><span></span><span></span></span><span>handoff</span></div>
-      <div class="network-pill"><i></i> Mainnet · Monad settlement</div>
+      <div class="network-pill"><i></i> Payments ready</div>
       <nav class="nav" aria-label="App pages">
         <button class="nav-item active" data-page="overview"><span class="nav-icon">⌂</span>Overview</button>
         <button class="nav-item" data-page="get-paid"><span class="nav-icon">↙</span>Get paid</button>
         <button class="nav-item" data-page="activity"><span class="nav-icon">◷</span>Activity</button>
-        <button class="nav-item" data-page="identity"><span class="nav-icon">◉</span>Identity</button>
+        <button class="nav-item" data-page="identity"><span class="nav-icon">◉</span>Payment name</button>
       </nav>
       <div class="sidebar-foot">
-        <button id="openSecurity" class="security-card"><span class="security-icon">✓</span><span><strong>Non-custodial</strong><small>Funds land in your wallet</small></span><span class="arrow">›</span></button>
-        <button id="profileButton" class="profile-mini"><span id="profileMiniAvatar" class="avatar gradient-avatar">H</span><span><b id="profileMiniName">Sign in to Handoff</b><small id="profileMiniHandle">Claim your payment handle</small></span><span class="more">•••</span></button>
+        <button id="openSecurity" class="security-card"><span class="security-icon">✓</span><span><strong>Simple, secure payments</strong><small>Share your name. Get paid.</small></span><span class="arrow">›</span></button>
+        <button id="profileButton" class="profile-mini"><span id="profileMiniAvatar" class="avatar gradient-avatar">H</span><span><b id="profileMiniName">Sign in to Handoff</b><small id="profileMiniHandle">Claim your payment name</small></span><span class="more">•••</span></button>
       </div>
     </aside>
 
     <main class="main-content">
-      <div class="signal-strip" aria-label="Network status"><span class="signal-live">LIVE</span><span>OMNICHAIN PAYMENT IDENTITY</span><i></i><span>8 EVM SOURCE NETWORKS</span><i></i><span>USDC → MONAD</span><i></i><span>NON-CUSTODIAL</span></div>
+      <div class="signal-strip" aria-label="Service status"><span class="signal-live">LIVE</span><span>SECURE PAYMENTS</span><i></i><span>SHARE YOUR USERNAME</span><i></i><span>GET PAID</span></div>
       <header class="topbar">
         <button class="mobile-menu" id="mobileMenu" aria-label="Open menu">☰</button>
-        <div class="crumb"><span id="pageEyebrow">OMNICHAIN PAYMENTS</span><h1 id="pageTitle">One handle. Every chain.</h1></div>
+        <div class="crumb"><span id="pageEyebrow">PAYMENTS</span><h1 id="pageTitle">Get paid, simply.</h1></div>
         <div class="top-actions">
           <button class="icon-button" id="copyHandle" aria-label="Copy payment handle" title="Copy your payment handle">⧉</button>
           <button class="icon-button" id="openNotifications" aria-label="Notifications">♢</button>
           <button id="authButton" class="button button-dark">Sign in <span>↗</span></button>
-          <button id="quickRequest" class="button button-ghost-dark">Request payment <span>↗</span></button>
+          <button id="quickRequest" class="button button-ghost-dark">Share payment page <span>↗</span></button>
         </div>
       </header>
 
       <section class="page active" id="overviewPage">
         <section class="balance-grid">
           <article class="balance-card">
-            <div class="balance-head"><span>Available on Monad</span><button class="eye-button" aria-label="Toggle balance visibility" id="toggleBalance">◉</button></div>
+            <div class="balance-head"><span>Available balance</span><button class="eye-button" aria-label="Toggle balance visibility" id="toggleBalance">◉</button></div>
             <div class="balance-amount" id="balanceAmount">—</div>
-            <div class="balance-sub" id="balanceSub"><span class="stable-dot">$</span> Sign in to view confirmed USDC <span class="balance-network">on Monad</span></div>
-            <div class="balance-actions"><button class="button button-light" id="requestFromBalance"><span class="button-symbol">↓</span> Request</button><button class="button button-ghost-dark" id="sendFromBalance"><span class="button-symbol">↑</span> Send</button></div>
+            <div class="balance-sub" id="balanceSub"><span class="stable-dot">$</span> Sign in to view your confirmed balance</div>
+            <div class="balance-actions"><button class="button button-light" id="requestFromBalance"><span class="button-symbol">↗</span> Share payment page</button><button id="sendFromBalance" hidden aria-hidden="true" tabindex="-1"></button></div>
             <div class="card-shine"></div>
           </article>
           <article class="identity-card">
-            <div class="identity-top"><div><span class="label">YOUR PAYMENT IDENTITY</span><h2>One handle. Every chain.</h2></div><button class="circle-arrow" id="openIdentity">↗</button></div>
-            <div class="handle-box"><div id="identityAvatar" class="handle-avatar gradient-avatar">H</div><div><strong id="identityHandle">Sign in to claim your @username</strong><span id="identityLink">A verified Handoff username resolves to Monad USDC.</span></div><button class="copy-small" id="copyPublicLink">Copy</button></div>
+            <div class="identity-top"><div><span class="label">YOUR PAYMENT NAME</span><h2>One name. Easy to share.</h2></div><button class="circle-arrow" id="openIdentity">↗</button></div>
+            <div class="handle-box"><div id="identityAvatar" class="handle-avatar gradient-avatar">H</div><div><strong id="identityHandle">Sign in to claim your @username</strong><span id="identityLink">Create a simple page for people to pay you.</span></div><button class="copy-small" id="copyPublicLink">Copy</button></div>
           </article>
         </section>
 
-        <section class="section-head"><div><span class="label">PAYMENT RAILS</span><h2>They pay how they want. You receive USDC.</h2></div><button class="text-button" id="routeRefresh">↻ <span id="routeSyncText">Check live routes</span></button></section>
-        <section class="rails-card" id="railsCard"><div class="settlement-node"><div class="node-orbit"></div><div class="monad-mark">M</div><div><strong>Monad</strong><span>Settlement network · USDC</span></div></div><div class="routes-grid" id="routesGrid" aria-live="polite"></div><div class="rails-note"><span class="pulse"></span><span id="railStatus">Choose a source network at checkout. Availability comes from a live Relay quote.</span></div></section>
-
         <section class="content-split">
           <article class="panel activity-panel"><div class="panel-head"><div><span class="label">RECENT ACTIVITY</span><h2>Money, clearly delivered.</h2></div><button class="text-button" data-go="activity">See all <span>→</span></button></div><div class="activity-list" id="activityList"></div></article>
-          <article class="panel request-panel"><div class="request-art"><div class="orbit one"></div><div class="orbit two"></div><div class="request-glyph">↓</div></div><span class="label">GET PAID</span><h2>Make a payment request in seconds.</h2><p>Set an amount, add a note, then share a link or QR. Your payer uses their own wallet and network.</p><button class="button button-dark full" id="createRequest">Create payment request <span>↗</span></button></article>
+          <article class="panel request-panel"><div class="request-art"><div class="orbit one"></div><div class="orbit two"></div><div class="request-glyph">↗</div></div><span class="label">GET PAID</span><h2>Share one simple payment page.</h2><p>Send people your Handoff username or payment page. They choose how to pay.</p><button class="button button-dark full" id="createRequest">Share payment page <span>↗</span></button></article>
         </section>
       </section>
 
       <section class="page" id="get-paidPage">
-        <div class="wide-intro"><span class="label">GET PAID</span><h2>Create a payment request</h2><p>A payer can send from any of the 8 supported EVM networks. You always receive USDC directly to your Monad wallet.</p></div>
-        <div class="request-workbench">
-          <div class="request-form-card"><div class="segmented"><button class="active" data-request-type="fixed">Fixed amount</button><button data-request-type="open">Any amount</button></div><label id="requestAmountLabel">Amount to receive <div class="amount-input"><span>$</span><input id="requestAmount" inputmode="decimal" value="25.00" /><span>USDC</span></div></label><label>What is this for?<input id="requestNote" maxlength="80" value="Payment request" placeholder="e.g. September design work" /></label><label>Expires<select id="requestExpiry"><option>In 24 hours</option><option>In 7 days</option><option>Never</option></select></label><button class="button button-dark full" id="generateRequest" disabled>Payment links coming soon</button><p class="input-caption">Shareable request links are not enabled yet. Your public payment page is available below.</p></div>
-          <div class="request-preview"><div class="preview-top"><span class="tiny-lock">⌁ Profile-bound payment request</span><button id="previewEdit" class="icon-button small">✎</button></div><div class="preview-person"><span id="previewAvatar" class="avatar gradient-avatar">H</span><div><strong id="previewName">Sign in to Handoff</strong><span id="previewHandle">Claim a Handoff username</span></div></div><div class="request-preview-amount" id="previewAmount">$25.00 <small>USDC</small></div><p id="previewNote">Payment request</p><div class="preview-line"></div><div class="preview-receive"><span>You receive</span><strong>USDC on Monad</strong></div><button class="button button-light full" id="sharePreview" disabled>Share link coming soon</button></div>
-        </div>
+        <div class="wide-intro"><span class="label">GET PAID</span><h2>Share your payment page.</h2><p>Your Handoff name is all people need to pay you.</p></div>
+        <article class="panel share-page-card"><div class="share-page-icon">↗</div><span class="label">YOUR PAYMENT PAGE</span><h2 id="sharePageTitle">Sign in to create your payment page.</h2><p id="sharePageCopy">Use a passkey or email to claim your Handoff name.</p><div class="share-page-link" id="sharePageLink">—</div><button class="button button-dark" id="sharePaidPage">Copy payment page <span>↗</span></button></article>
       </section>
 
-      <section class="page" id="activityPage"><div class="wide-intro"><span class="label">ACTIVITY</span><h2>Every payment has a clear receipt.</h2><p>Track source-chain confirmation, Relay routing, and final Monad settlement.</p></div><div class="filter-row"><button class="filter active">All activity</button><button class="filter">Received</button><button class="filter">Requests</button><button class="filter">Pending</button></div><article class="panel activity-page-list"><div class="activity-list" id="activityFullList"></div></article></section>
+      <section class="page" id="activityPage"><div class="wide-intro"><span class="label">ACTIVITY</span><h2>Your payment activity.</h2><p>See every payment that has completed for your Handoff name.</p></div><article class="panel activity-page-list"><div class="activity-list" id="activityFullList"></div></article></section>
 
       <section class="page" id="identityPage">
-        <div class="wide-intro"><span class="label">PAYMENT IDENTITY</span><h2>Your name, not your wallet address.</h2><p>Only registered Handoff usernames resolve to an active Monad recipient wallet.</p></div>
-        <div class="identity-layout"><article class="panel profile-card"><div class="profile-cover"></div><div id="profileAvatar" class="profile-avatar gradient-avatar">H</div><h2 id="profileName">Sign in to Handoff</h2><p id="profileHandle">Your Monad recipient wallet stays under your control.</p><div class="wallet-address"><span>Monad recipient wallet</span><code id="walletAddress">—</code><button id="copyWallet" class="copy-small">Copy</button></div><button class="button button-light full" id="shareProfile">Share my payment page <span>↗</span></button><button class="button button-ghost-dark full" id="openWalletSettings">Open secure Dynamic wallet settings</button><button class="button button-ghost-dark full" id="exportWalletKey">Export wallet key</button></article><article class="panel aliases-panel"><div class="panel-head"><div><span class="label">HANDOFF USERNAME</span><h2>Claim one canonical payment identity.</h2></div></div><div id="aliasList" class="alias-list"></div><div class="alias-safety"><span>✓</span><p><strong>Recipient safety:</strong> the server verifies your Dynamic session and wallet before a handle can resolve. Handoff never holds funds.</p></div></article></div>
+        <div class="wide-intro"><span class="label">YOUR PAYMENT NAME</span><h2>Your name is how you get paid.</h2><p>Choose one simple username, then share it to get paid.</p></div>
+        <div class="identity-layout"><article class="panel profile-card"><div class="profile-cover"></div><div id="profileAvatar" class="profile-avatar gradient-avatar">H</div><h2 id="profileName">Sign in to Handoff</h2><p id="profileHandle">Use a passkey or email to manage your payment identity.</p><button class="button button-light full" id="shareProfile">Share my payment page <span>↗</span></button></article><article class="panel aliases-panel"><div class="panel-head"><div><span class="label">HANDOFF USERNAME</span><h2>Claim one canonical payment identity.</h2></div></div><div id="aliasList" class="alias-list"></div><div class="alias-safety"><span>✓</span><p><strong>Simple secure access:</strong> sign in with a passkey or email, then share your username to get paid.</p></div></article></div>
       </section>
     </main>
   </div>
@@ -86,39 +80,30 @@
       <div id="publicAvatar" class="profile-avatar gradient-avatar" aria-hidden="true">H</div>
       <h1 id="publicName">Handoff payment page</h1>
       <p id="publicHandle" class="public-handle">@</p>
-      <p class="public-copy">Pay in USDC from a supported network. Funds settle directly to this recipient’s Monad wallet. Handoff never holds funds.</p>
-      <button id="publicPayButton" class="button button-dark full">Pay with USDC <span>→</span></button>
-      <p class="modal-note">Routes are checked live before you sign anything.</p>
+      <p class="public-copy">Send a payment to this Handoff name. You’ll review payment details before confirming.</p>
+      <button id="publicPayButton" class="button button-dark full">Make a payment <span>→</span></button>
+      <p class="modal-note">Payment options appear after you continue.</p>
     </article>
   </section>
 
   <div class="modal-backdrop" id="modalBackdrop" aria-hidden="true"></div>
   <section class="modal" id="payModal" role="dialog" aria-modal="true" aria-labelledby="payModalTitle">
     <button class="modal-close" data-close="payModal" aria-label="Close">×</button>
-    <div class="modal-step active" data-step="choose"><span class="label">SEND A PAYMENT</span><h2 id="payModalTitle">Pay a Handoff username</h2><label>Recipient<input id="payRecipient" autocomplete="off" placeholder="@username" /></label><div class="recipient-proof" id="recipientProof"><span class="avatar gradient-avatar">@</span><span><b>Enter a Handoff username</b><small>We will resolve its active Monad wallet on the server.</small></span></div><label>Recipient gets<div class="amount-input"><span>$</span><input id="payAmount" inputmode="decimal" value="25.00" /><span>USDC</span></div></label><p class="input-caption">You choose the network you pay from next.</p><button class="button button-dark full" id="toNetworks">Verify recipient &amp; choose source <span>→</span></button></div>
+    <div class="modal-step active" data-step="choose"><span class="label">SEND A PAYMENT</span><h2 id="payModalTitle">Pay a Handoff username</h2><label>Recipient<input id="payRecipient" autocomplete="off" placeholder="@username" /></label><div class="recipient-proof" id="recipientProof"><span class="avatar gradient-avatar">@</span><span><b>Enter a Handoff username</b><small>We will verify the recipient securely on the server.</small></span></div><label>Recipient gets<div class="amount-input"><span>$</span><input id="payAmount" inputmode="decimal" value="25.00" /><span>USDC</span></div></label><p class="input-caption">You choose the network you pay from next.</p><button class="button button-dark full" id="toNetworks">Verify recipient &amp; choose source <span>→</span></button></div>
     <div class="modal-step" data-step="network"><button class="back-button" id="backToChoose">← Back</button><span class="label" id="networkLabel">PAYMENT ROUTE</span><h2>Where are your funds?</h2><p class="modal-description">We’ll show a live route before you sign anything.</p><div class="network-picker" id="networkPicker"></div><div class="route-disclaimer">⏱ Quotes are live and expire. Handoff never takes custody of your funds.</div></div>
-    <div class="modal-step" data-step="quote"><button class="back-button" id="backToNetworks">← Back</button><span class="label">PAYMENT ROUTE</span><h2>Review before you pay</h2><div class="quote-card"><div><span>You send</span><b id="quoteSend">25.00 USDC</b><small id="quoteSource">on Base</small></div><div class="quote-arrow">↓</div><div class="quote-recipient"><span id="quoteRecipientName">Recipient receives</span><b id="quoteReceive">— USDC</b><small>on Monad</small></div></div><div class="quote-details"><div><span>Route</span><b id="quoteRoute">Relay · live quote</b></div><div><span>Recipient</span><b id="quoteRecipientHandle">—</b></div><div><span>Payment ID</span><b id="paymentId">—</b></div></div><span class="quote-badge" id="quoteBadge" data-tone="neutral">Quote not requested yet</span><div class="quote-state" id="quoteState">Verify a registered recipient, then connect a supported wallet for a quote.</div><ol class="receipt-steps" id="receiptSteps" aria-label="Payment progress" hidden></ol><button class="button button-dark full" id="getQuote">Connect wallet &amp; get live quote <span>↗</span></button><button class="button button-dark full" id="signPay" hidden>Sign &amp; pay in wallet <span>↗</span></button><p class="quote-footnote">Solana and TON are not available yet. Your own wallet signs and broadcasts every transaction. Handoff never takes custody of your funds.</p></div>
+    <div class="modal-step" data-step="quote"><button class="back-button" id="backToNetworks">← Back</button><span class="label">EXACT-OUTPUT PAYMENT ROUTE</span><h2>Review before you pay</h2><div class="quote-card exact-output"><div class="quote-recipient"><span id="quoteRecipientName">Recipient receives</span><b id="quoteReceive">— USDC</b><small id="quoteReceiveMeta">on Monad · pending validation</small></div><div class="quote-arrow">↓</div><div><span>You pay</span><b id="quoteSend">— USDC</b><small id="quoteSource">live USDC quote</small></div><div class="quote-gas"><span>Network gas</span><b id="quoteGas">—</b><small>paid by you from your wallet</small></div></div><div class="quote-details"><div><span>Route cost</span><b id="quoteRouteCost">—</b></div><div><span>Route</span><b id="quoteRoute">Relay · live quote</b></div><div><span>Recipient</span><b id="quoteRecipientHandle">—</b></div><div><span>Payment ID</span><b id="paymentId">—</b></div></div><span class="quote-badge" id="quoteBadge" data-tone="neutral">Quote not requested yet</span><div class="quote-state" id="quoteState">Verify a registered recipient, then connect a supported wallet for an exact-output quote.</div><ol class="receipt-steps" id="receiptSteps" aria-label="Payment progress" hidden></ol><button class="button button-dark full" id="getQuote">Connect wallet &amp; get live quote <span>↗</span></button><button class="button button-dark full" id="signPay" hidden>Sign &amp; pay in wallet <span>↗</span></button><p class="quote-footnote">Recipient output is fixed. Your live USDC quote includes Relay route costs; your wallet separately charges source-network gas in its native asset. Solana and TON are not available yet. Handoff never takes custody of funds.</p></div>
   </section>
 
 
   <section class="modal" id="authModal" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
     <button class="modal-close" data-close="authModal" aria-label="Close">×</button>
-    <div class="modal-step active" data-auth-step="start"><span class="label">SECURE ACCESS</span><h2 id="authModalTitle">Start your payment identity.</h2><p class="modal-description">Continue with your email to create your secure Handoff account. No wallet, phone number, or seed phrase needed.</p><button id="continueWithEmail" class="button button-dark full">Continue with email <span>→</span></button><p class="modal-note" id="authStatus">Sign-in is handled securely by Dynamic. Handoff never sees your keys.</p></div>
+    <div class="modal-step active" data-auth-step="start"><span class="label">SECURE ACCESS</span><h2 id="authModalTitle">Start getting paid.</h2><p class="modal-description">Sign in with a passkey or your email to create your payment name.</p><button id="continueWithEmail" class="button button-dark full">Continue securely <span>→</span></button><p class="modal-note" id="authStatus">Use a passkey or email to sign in securely.</p></div>
     <div class="modal-step" data-auth-step="provisioning" aria-live="polite"><span class="label">ONE MOMENT</span><h2 id="provisioningTitle">Setting up your secure payment account…</h2><p class="modal-description" id="provisioningText">This only takes a few seconds.</p><button id="retryWalletSetup" class="button button-dark full" hidden>Retry setup <span>↻</span></button><p class="modal-note" id="provisioningStatus"></p></div>
-    <div class="modal-step" data-auth-step="claim"><span class="label">CREATE YOUR PAYMENT ID</span><h2>Choose your @username.</h2><p class="modal-description">Your account is ready to receive USDC on Monad. Share your @username and people can pay you.</p><label>Handoff username<input id="claimUsername" autocomplete="username" maxlength="24" placeholder="yourname" /><small class="input-caption">Use 3–24 lowercase letters, numbers, or underscores.</small></label><button id="claimUsernameButton" class="button button-dark full">Claim username <span>→</span></button><p class="modal-note" id="claimStatus"></p></div>
+    <div class="modal-step" data-auth-step="claim"><span class="label">CREATE YOUR PAYMENT NAME</span><h2>Choose your @username.</h2><p class="modal-description">Share your @username and people can pay you.</p><label>Handoff username<input id="claimUsername" autocomplete="username" maxlength="24" placeholder="yourname" /><small class="input-caption">Use 3–24 lowercase letters, numbers, or underscores.</small></label><button id="claimUsernameButton" class="button button-dark full">Claim username <span>→</span></button><p class="modal-note" id="claimStatus"></p></div>
   </section>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <section class="modal compact-modal" id="exportKeyModal" role="dialog" aria-modal="true" aria-labelledby="exportKeyTitle">
-    <button class="modal-close" data-close="exportKeyModal" aria-label="Close">×</button>
-    <span class="label">SECURE KEY EXPORT</span>
-    <h2 id="exportKeyTitle">Export your wallet key.</h2>
-    <p>Dynamic opens its own secure window and shows the key only inside that isolated frame. Handoff never sees, receives, or stores it. Anyone with this key controls your USDC — keep it secret.</p>
-    <button id="continueExportKey" class="button button-dark full">Continue in secure window <span>→</span></button>
-    <p class="modal-note" id="exportKeyStatus">The secure window belongs to Dynamic. Closing this dialog clears it.</p>
-    <div id="legacyExportFrame" class="legacy-export-frame" data-testid="legacy-export-frame"></div>
-  </section>
   <script src="/app.js"></script>
 </body>
 </html>

@@ -1,6 +1,5 @@
 const state = {
   selectedNetwork: null,
-  requestType: 'fixed',
   balanceVisible: true,
   routeStatus: null,
   payment: { quote: null, payer: null, paymentId: null, receipt: null, pendingHash: null, busy: false, flow: 0 },
@@ -43,16 +42,16 @@ const NETWORK_STYLE = {
   ton: { short: 'T', color: '#d9edff' }
 };
 const FALLBACK_SOURCE_NETWORKS = [
-  { key: 'ethereum', name: 'Ethereum', chainId: 1, type: 'evm', status: 'live' },
-  { key: 'base', name: 'Base', chainId: 8453, type: 'evm', status: 'live' },
-  { key: 'arbitrum', name: 'Arbitrum', chainId: 42161, type: 'evm', status: 'live' },
-  { key: 'optimism', name: 'Optimism', chainId: 10, type: 'evm', status: 'live' },
-  { key: 'polygon', name: 'Polygon', chainId: 137, type: 'evm', status: 'live' },
-  { key: 'bnb', name: 'BNB Chain', chainId: 56, type: 'evm', status: 'live' },
-  { key: 'avalanche', name: 'Avalanche', chainId: 43114, type: 'evm', status: 'live' },
-  { key: 'celo', name: 'Celo', chainId: 42220, type: 'evm', status: 'live' },
-  { key: 'solana', name: 'Solana', chainId: 792703809, type: 'svm', status: 'not_available' },
-  { key: 'ton', name: 'TON', chainId: 224235520, type: 'tonvm', status: 'not_available' }
+  { key: 'ethereum', name: 'Ethereum', chainId: 1, type: 'evm', nativeCurrency: 'ETH', status: 'live' },
+  { key: 'base', name: 'Base', chainId: 8453, type: 'evm', nativeCurrency: 'ETH', status: 'live' },
+  { key: 'arbitrum', name: 'Arbitrum', chainId: 42161, type: 'evm', nativeCurrency: 'ETH', status: 'live' },
+  { key: 'optimism', name: 'Optimism', chainId: 10, type: 'evm', nativeCurrency: 'ETH', status: 'live' },
+  { key: 'polygon', name: 'Polygon', chainId: 137, type: 'evm', nativeCurrency: 'POL', status: 'live' },
+  { key: 'bnb', name: 'BNB Chain', chainId: 56, type: 'evm', nativeCurrency: 'BNB', status: 'live' },
+  { key: 'avalanche', name: 'Avalanche', chainId: 43114, type: 'evm', nativeCurrency: 'AVAX', status: 'live' },
+  { key: 'celo', name: 'Celo', chainId: 42220, type: 'evm', nativeCurrency: 'CELO', status: 'live' },
+  { key: 'solana', name: 'Solana', chainId: 792703809, type: 'svm', nativeCurrency: 'SOL', status: 'not_available' },
+  { key: 'ton', name: 'TON', chainId: 224235520, type: 'tonvm', nativeCurrency: 'TON', status: 'not_available' }
 ];
 let networks = FALLBACK_SOURCE_NETWORKS.map(item => ({ ...item, ...NETWORK_STYLE[item.key] }));
 
@@ -63,8 +62,6 @@ const RECEIPT_TIMEOUT_MS = 3 * 60 * 1000;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
-const isEvmAddress = value => /^0x[0-9a-fA-F]{40}$/.test(String(value || ''));
-const shortAddress = value => value && isEvmAddress(value) ? `${value.slice(0, 6)}…${value.slice(-4)}` : '—';
 const initial = value => String(value || 'H').trim().charAt(0).toUpperCase() || 'H';
 
 // Canonical public payment page for a username, derived from the origin the page was served from.
@@ -93,23 +90,18 @@ function openModal(id) {
   modal.setAttribute('aria-hidden', 'false');
 }
 function closeModals() {
-  // If the key-export dialog was open, clear Dynamic's export frame as the modal closes.
-  const exportWasOpen = $('#exportKeyModal').classList.contains('visible');
   $('#modalBackdrop').classList.remove('visible');
   $$('.modal.visible').forEach(modal => { modal.classList.remove('visible'); modal.setAttribute('aria-hidden', 'true'); });
-  if (exportWasOpen) {
-    try { window.HandoffDynamic?.clearExportFrame?.(); } catch { /* nothing to clear */ }
-  }
 }
 function goTo(page) {
   $$('.page').forEach(el => el.classList.remove('active'));
   $(`#${page}Page`).classList.add('active');
   $$('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
   const labels = {
-    overview: ['OMNICHAIN PAYMENTS', 'One handle. Every chain.'],
-    'get-paid': ['PAYMENT REQUESTS', 'Get paid your way'],
-    activity: ['PAYMENT HISTORY', 'Clear from source to settlement'],
-    identity: ['YOUR PAYMENT IDENTITY', 'Your handle, not your address']
+    overview: ['PAYMENTS', 'Get paid, simply.'],
+    'get-paid': ['GET PAID', 'Share your payment page'],
+    activity: ['PAYMENT ACTIVITY', 'Your payment activity'],
+    identity: ['YOUR PAYMENT NAME', 'Your name is how you get paid']
   };
   $('#pageEyebrow').textContent = labels[page][0];
   $('#pageTitle').textContent = labels[page][1];
@@ -118,8 +110,8 @@ function goTo(page) {
 }
 
 function renderActivity() {
-  const blank = `<div class="activity-item"><div class="activity-icon in">⌁</div><div class="activity-main"><b>No confirmed payments yet</b><span>New activity appears here after source confirmation and Monad settlement.</span></div></div>`;
-  const syncing = `<div class="activity-item"><div class="activity-icon in">⌁</div><div class="activity-main"><b>Syncing activity…</b><span>Verified recipient receipts are loading.</span></div></div>`;
+  const blank = `<div class="activity-item"><div class="activity-icon in">⌁</div><div class="activity-main"><b>No payments yet</b><span>Completed payments will appear here.</span></div></div>`;
+  const syncing = `<div class="activity-item"><div class="activity-icon in">⌁</div><div class="activity-main"><b>Checking for payments…</b><span>Your activity is loading securely.</span></div></div>`;
   const markup = state.portfolio.activity.length
     ? state.portfolio.activity.map(activityItemMarkup).join('')
     : (state.auth.profile && !state.portfolio.loaded ? syncing : blank);
@@ -127,17 +119,20 @@ function renderActivity() {
   $('#activityFullList').innerHTML = markup;
 }
 
-// Verified recipient receipt activity, exactly as /api/me/portfolio reports it. Never a payer
-// address and never a wallet: only the receipt states, amounts, and source/destination hashes.
+// Keep recipient activity in payment language. Server-side receipts retain all route and settlement
+// detail for verification, but the merchant-facing dashboard exposes only an honest payment state.
 function activityItemMarkup(item) {
-  const amountText = item.receive?.amount ? `+${item.receive.amount} USDC` : `${item.send.amount} USDC`;
-  const detail = `${item.sourceNetwork ? item.sourceNetwork.name : 'Source'} → Monad`;
-  const progress = item.settlementVerified ? 'Verified' : item.final ? 'Final' : 'In progress';
-  return `<div class="activity-item"><div class="activity-icon in">↙</div><div class="activity-main"><b>${item.label}</b><span>${detail}</span></div><div class="activity-right"><b>${amountText}</b><span>${progress}</span></div></div>`;
+  const complete = Boolean(item.settlementVerified && item.status === 'settled');
+  const amount = item.receive?.amount || item.receive?.requested;
+  const amountText = amount ? `+$${amount}` : 'Payment';
+  const title = complete ? 'Payment received' : item.final ? 'Payment update' : 'Payment in progress';
+  const detail = complete ? 'Payment confirmed' : item.final ? 'Payment could not be completed' : 'We are confirming this payment';
+  const progress = complete ? 'Complete' : item.final ? 'Complete' : 'Confirming';
+  return `<div class="activity-item"><div class="activity-icon in">↙</div><div class="activity-main"><b>${title}</b><span>${detail}</span></div><div class="activity-right"><b>${amountText}</b><span>${progress}</span></div></div>`;
 }
 
-// The verified Monad USDC balance from the server's on-chain read. When the chain cannot be read
-// the dashboard says "syncing/unavailable" — it never shows a fake zero balance.
+// The server reads the payment balance from the settlement chain. The recipient UI deliberately
+// presents it as a dollar balance and never substitutes a fabricated zero when it cannot be read.
 function renderBalance() {
   const profile = state.auth.profile;
   const balance = state.portfolio.balance;
@@ -145,23 +140,23 @@ function renderBalance() {
   const sub = $('#balanceSub');
   if (!profile) {
     amount.innerHTML = state.balanceVisible ? '—' : '•••';
-    sub.innerHTML = '<span class="stable-dot">$</span> Sign in to view confirmed USDC <span class="balance-network">on Monad</span>';
+    sub.innerHTML = '<span class="stable-dot">$</span> Sign in to view your confirmed balance';
     return;
   }
   if (!state.balanceVisible) {
     amount.innerHTML = '•••';
-    sub.innerHTML = '<span class="stable-dot">$</span> Balance hidden <span class="balance-network">on Monad</span>';
+    sub.innerHTML = '<span class="stable-dot">$</span> Balance hidden';
     return;
   }
   if (balance.status === 'available') {
-    amount.innerHTML = `${balance.amount} <span>USDC</span>`;
-    sub.innerHTML = '<span class="stable-dot">$</span> Verified on-chain balance <span class="balance-network">on Monad</span>';
+    amount.innerHTML = `$${balance.amount}`;
+    sub.innerHTML = '<span class="stable-dot">$</span> Confirmed balance';
     return;
   }
   amount.innerHTML = '—';
   sub.innerHTML = balance.status === 'unavailable'
-    ? '<span class="stable-dot">$</span> Balance syncing/unavailable — not a zero balance <span class="balance-network">on Monad</span>'
-    : '<span class="stable-dot">$</span> Syncing verified balance <span class="balance-network">on Monad</span>';
+    ? '<span class="stable-dot">$</span> We could not refresh your balance — this is not a zero balance'
+    : '<span class="stable-dot">$</span> Checking your confirmed balance';
 }
 
 // Loads the signed-in owner's portfolio. Failures keep the last honest state: an unreadable RPC
@@ -193,32 +188,34 @@ function renderIdentity() {
   const profile = state.auth.profile;
   const handle = profile ? `@${profile.username}` : 'Sign in to claim your @username';
   const name = profile?.displayName || 'Sign in to Handoff';
-  const link = profile ? canonicalPaymentUrl(profile.username).replace(/^https?:\/\//, '') : 'A verified Handoff username resolves to Monad USDC.';
+  const link = profile ? canonicalPaymentUrl(profile.username).replace(/^https?:\/\//, '') : 'Create a simple page for people to pay you.';
   const avatar = initial(profile?.displayName || profile?.username);
 
   $('#identityHandle').textContent = handle;
   $('#identityLink').textContent = link;
   $('#identityAvatar').textContent = avatar;
-  $('#previewName').textContent = name;
-  $('#previewHandle').textContent = profile ? handle : 'Claim a Handoff username';
-  $('#previewAvatar').textContent = avatar;
   $('#profileName').textContent = name;
-  $('#profileHandle').textContent = profile ? `${handle} · Ready to receive on Monad` : 'Your Monad recipient wallet stays under your control.';
+  $('#profileHandle').textContent = profile ? `${handle} · Ready to get paid.` : 'Sign in with a passkey or email to claim your payment name.';
   $('#profileAvatar').textContent = avatar;
-  $('#walletAddress').textContent = profile ? shortAddress(profile.wallet) : '—';
   $('#profileMiniAvatar').textContent = avatar;
   $('#profileMiniName').textContent = profile ? name : 'Sign in to Handoff';
   $('#profileMiniHandle').textContent = profile ? handle : 'Claim your payment handle';
   $('#authButton').innerHTML = state.auth.signedIn ? 'Sign out <span>↗</span>' : 'Sign in <span>↗</span>';
+  $('#sharePageTitle').textContent = profile ? `Share ${handle}` : 'Sign in to create your payment page.';
+  $('#sharePageCopy').textContent = profile ? 'Copy this page and send it to anyone who needs to pay you.' : 'Use a passkey or email to claim your Handoff name.';
+  $('#sharePageLink').textContent = profile ? canonicalPaymentUrl(profile.username).replace(/^https?:\/\//, '') : '—';
+  $('#sharePaidPage').disabled = !profile;
   renderBalance();
 
   $('#aliasList').innerHTML = profile
     ? `<div class="alias-entry"><div class="alias-platform">@</div><div class="alias-data"><b>Handoff username</b><span>@${profile.username}</span></div><div class="alias-status">✓ Active</div></div>`
-    : '<div class="alias-entry"><div class="alias-platform">@</div><div class="alias-data"><b>One canonical username</b><span>Sign in to claim your payment identity.</span></div></div>';
+    : '<div class="alias-entry"><div class="alias-platform">@</div><div class="alias-data"><b>One canonical username</b><span>Sign in to claim your payment name.</span></div></div>';
 }
 
 function renderRails() {
-  $('#routesGrid').innerHTML = networks.map(network => {
+  const grid = $('#routesGrid');
+  if (!grid) return;
+  grid.innerHTML = networks.map(network => {
     if (network.status !== 'live') {
       return `<div class="rail unavailable" title="${network.name} is not available yet"><span class="rail-icon" style="background:${network.color}">${network.short}</span><span>${network.name}</span><em class="rail-status">Not available yet</em></div>`;
     }
@@ -248,7 +245,7 @@ function applyPaymentConfig(payments) {
 }
 async function refreshRoutes(silent = false) {
   const status = $('#routeSyncText');
-  status.textContent = 'Syncing routes…';
+  if (status) status.textContent = 'Syncing routes…';
   const live = networks.filter(network => network.status === 'live');
   try {
     const response = await fetch('/api/relay/routes');
@@ -258,12 +255,14 @@ async function refreshRoutes(silent = false) {
     renderRails();
     renderNetworkPicker();
     const available = live.filter(networkSelectable).length;
-    $('#railStatus').textContent = `${available} of ${live.length} live source networks are open right now. Solana and TON are not available yet.`;
-    status.textContent = `${available}/${live.length} routes checked live`;
+    const railStatus = $('#railStatus');
+    if (railStatus) railStatus.textContent = `${available} of ${live.length} live source networks are open right now. Solana and TON are not available yet.`;
+    if (status) status.textContent = `${available}/${live.length} routes checked live`;
     if (!silent) toast(`Live Relay data checked: ${available} of ${live.length} source routes open.`);
   } catch {
-    status.textContent = 'Route check unavailable';
-    $('#railStatus').textContent = 'Route status is checked again when you request a quote. A live quote is required before anything can be signed.';
+    if (status) status.textContent = 'Route check unavailable';
+    const railStatus = $('#railStatus');
+    if (railStatus) railStatus.textContent = 'Route status is checked again when you request a quote. A live quote is required before anything can be signed.';
     if (!silent) toast('Could not reach Relay. Check again before paying.');
   }
 }
@@ -350,7 +349,7 @@ function receiptMessage(receipt) {
     case 'transaction_submitted': return `Transaction submitted from your wallet (${shortHash(receipt.sourceTxHash)}). Waiting for the source chain to confirm.`;
     case 'source_confirmed': return 'Source transaction confirmed. Routing to Monad.';
     case 'routing': return 'Routing to Monad. Handoff shows “Settled” only after Monad confirms the USDC transfer.';
-    case 'settled': return `Settled as USDC on Monad, verified on-chain (${shortHash(receipt.destinationTxHash)}).`;
+    case 'settled': return `Recipient received exactly ${receipt.receive?.amount || receipt.receive?.requested || 'the requested'} USDC on Monad, verified on-chain (${shortHash(receipt.destinationTxHash)}).`;
     case 'failed': return receipt.failure?.message || 'This payment could not be completed.';
     case 'refunded': return 'Relay refunded this payment. Check your source wallet.';
     default: return '';
@@ -393,7 +392,7 @@ function renderRecipientProof(message) {
     proof.innerHTML = `<span class="avatar gradient-avatar">${initial(recipient.displayName || recipient.username)}</span><span><b>${recipient.displayName || recipient.username} · @${recipient.username}</b><small>Registered Handoff username · receives USDC on Monad</small></span>`;
     return;
   }
-  proof.innerHTML = `<span class="avatar gradient-avatar">@</span><span><b>${message || 'Enter a Handoff username'}</b><small>Handoff resolves the recipient on the server. You never enter a wallet address.</small></span>`;
+  proof.innerHTML = `<span class="avatar gradient-avatar">@</span><span><b>${message || 'Enter a Handoff username'}</b><small>Handoff resolves the recipient securely on the server.</small></span>`;
 }
 async function resolveRecipient() {
   const handle = $('#payRecipient').value.trim();
@@ -429,16 +428,20 @@ function selectNetwork(key) {
 }
 function prepareQuote(network) {
   const amount = Number(amountInput() || 25);
-  $('#quoteSend').textContent = `${Number.isFinite(amount) ? amount.toFixed(2) : '—'} USDC`;
-  $('#quoteSource').textContent = `on ${network.name}`;
-  $('#quoteReceive').textContent = '— USDC';
+  const requested = Number.isFinite(amount) ? amount.toFixed(2) : '—';
+  $('#quoteSend').textContent = '— USDC';
+  $('#quoteSource').textContent = `live USDC quote on ${network.name}`;
+  $('#quoteReceive').textContent = `${requested} USDC`;
+  $('#quoteReceiveMeta').textContent = 'on Monad · pending route validation';
+  $('#quoteGas').textContent = `${network.nativeCurrency || 'native gas'} — paid by you`;
+  $('#quoteRouteCost').textContent = 'Included in live quote';
   $('#quoteRoute').textContent = `Relay · ${network.name} → Monad`;
   $('#quoteRecipientName').textContent = `${state.recipient?.displayName || state.recipient?.username || 'Recipient'} receives`;
   $('#quoteRecipientHandle').textContent = state.recipient ? `@${state.recipient.username}` : '—';
   $('#paymentId').textContent = '—';
   renderReceipt(null);
   setQuoteBadge('Quote not requested yet', 'neutral');
-  $('#quoteState').textContent = 'Connect your wallet to request a live quote. Nothing is signed or submitted until you approve it in your wallet.';
+  $('#quoteState').textContent = 'Connect your wallet to request a live exact-output quote. Recipient output is fixed; the live quote determines your source-USDC amount.';
   setQuoteButtons('quote', 'Connect wallet & get live quote ↗');
 }
 async function ethereumAccount() {
@@ -451,15 +454,24 @@ async function ethereumAccount() {
 // Step 1 of checkout. The server validates the route and, if Relay returns an executable transaction
 // plan, reserves the attempt. Nothing is signed here.
 function applyQuote(data) {
-  const receive = data.quote?.receive;
-  const eta = data.quote?.timeEstimateSeconds ? ` Estimated route time: ${data.quote.timeEstimateSeconds}s.` : '';
-  $('#quoteSend').textContent = `${data.quote?.send?.amount || '—'} USDC`;
-  $('#quoteReceive').textContent = receive?.expected ? `${receive.expected} USDC` : receive?.minimum ? `at least ${receive.minimum} USDC` : '— USDC';
+  const quote = data.quote || {};
+  const receive = quote.receive || {};
+  const pay = quote.pay || {};
+  const eta = quote.timeEstimateSeconds ? ` Estimated route time: ${quote.timeEstimateSeconds}s.` : '';
+  const requested = receive.requested ? `${receive.requested} USDC${receive.guaranteed ? ' — guaranteed' : ''}` : '— USDC';
+  $('#quoteReceive').textContent = requested;
+  $('#quoteReceiveMeta').textContent = receive.guaranteed ? 'on Monad · guaranteed' : 'on Monad · not guaranteed';
+  $('#quoteSend').textContent = pay.amount ? `${pay.amount} ${pay.asset || 'USDC'}` : '— USDC';
+  $('#quoteSource').textContent = pay.amount ? `live quote on ${quote.sourceNetwork?.name || 'source network'}` : 'no executable source quote';
+  $('#quoteGas').textContent = `${quote.networkGas?.asset || 'Native gas'} — paid by you`;
+  $('#quoteRouteCost').textContent = pay.routeCost !== null && pay.routeCost !== undefined
+    ? `${pay.routeCost} USDC included in your quote`
+    : 'Not available without an executable quote';
   if (!data.executable) {
     state.payment.quote = null;
     $('#paymentId').textContent = '—';
     setQuoteBadge('Quote preview only', 'preview');
-    $('#quoteState').textContent = `${data.message || 'Quote preview only.'}${eta}`;
+    $('#quoteState').textContent = `${data.message || 'Quote preview only.'}${eta} Nothing can be signed because Handoff could not verify an exact recipient output.`;
     renderReceipt(null);
     setQuoteButtons('preview', 'Quote preview only — no transaction to sign');
     return;
@@ -468,7 +480,7 @@ function applyQuote(data) {
   state.payment.paymentId = data.paymentId;
   $('#paymentId').textContent = shortId(data.paymentId);
   setQuoteBadge('Quote received', 'live');
-  $('#quoteState').textContent = `Quote received.${eta} Quote expires at ${formatTime(data.expiresAt)}. Review the route, then sign in your wallet.`;
+  $('#quoteState').textContent = `Recipient receives ${receive.requested} USDC on Monad — guaranteed. You pay ${pay.amount} USDC, including ${pay.routeCost} USDC in route costs, plus ${quote.networkGas?.asset || 'native'} network gas from your wallet.${eta} Quote expires at ${formatTime(data.expiresAt)}. Review the route, then sign in your wallet.`;
   renderReceipt('quote_created');
   setQuoteButtons('sign', 'Sign & pay in wallet ↗');
 }
@@ -665,14 +677,6 @@ async function signAndPay() {
   }
 }
 
-function updateRequestPreview() {
-  const amount = $('#requestAmount').value || '0.00';
-  const note = $('#requestNote').value.trim() || 'Payment request';
-  $('#previewAmount').innerHTML = `${state.requestType === 'fixed' ? `$${Number(amount || 0).toFixed(2)}` : 'Any amount'} <small>${state.requestType === 'fixed' ? 'USDC' : ''}</small>`;
-  $('#previewNote').textContent = note;
-  $('#requestAmountLabel').style.opacity = state.requestType === 'fixed' ? '1' : '.45';
-  $('#requestAmount').disabled = state.requestType !== 'fixed';
-}
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     if (window.HandoffDynamic) return resolve();
@@ -747,7 +751,7 @@ async function expireSession() {
   try { await window.HandoffDynamic?.signOut?.(); } catch { /* Local state still resets below. */ }
   resetLocalSession();
   showAuthStep('start');
-  setAuthStatus('Your session ended. Continue with email to sign in again.');
+  setAuthStatus('Your session ended. Continue securely to sign in again.');
   openModal('authModal');
 }
 
@@ -935,7 +939,7 @@ async function claimUsername() {
     state.auth.profile = data.profile;
     renderIdentity();
     closeModals();
-    toast(`@${data.profile.username} is ready to receive USDC on Monad.`);
+    toast(`@${data.profile.username} is ready to get paid.`);
     refreshPortfolio();
   } catch (error) {
     if (error.status === 401) return expireSession();
@@ -960,81 +964,26 @@ async function signOut() {
   toast('Signed out of Handoff.');
 }
 
-// Identity → Open secure Dynamic wallet settings. Owner-only, and delegated completely to
-// Dynamic's profile UI for the existing wallet. This does not migrate, create, replace, or select
-// a wallet in Handoff.
-function openWalletSettings() {
-  if (!state.auth.profile) return openAuthFlow();
-  if (!window.HandoffDynamic?.openWalletSettings) {
-    return toast('Secure wallet settings are still loading. Try again in a moment.');
-  }
-  try {
-    window.HandoffDynamic.openWalletSettings();
-  } catch {
-    toast('Secure wallet settings could not be opened. Try again in a moment.');
-  }
-}
-
-// Identity → Export wallet key. Owner-only: the button is inert without a signed-in profile, and
-// the export itself is Dynamic's embedded-wallet reveal, rendered only inside Dynamic's isolated
-// secure iframe. Handoff code, the server, and this dialog never receive the exported key.
-function openExportKey() {
-  if (!state.auth.profile) return openAuthFlow();
-  $('#exportKeyStatus').textContent = 'The secure window belongs to Dynamic. Closing this dialog clears it.';
-  openModal('exportKeyModal');
-}
-
-const EXPORT_DENIED_MESSAGE = 'Secure export authorization was denied';
-
-async function continueExportKey() {
-  if (!window.HandoffDynamic?.exportWalletKey) {
-    return toast('Secure key export is still loading. Try again in a moment.');
-  }
-  const button = $('#continueExportKey');
-  button.disabled = true;
-  button.textContent = 'Opening secure window…';
-  try {
-    const result = await window.HandoffDynamic.exportWalletKey();
-    // A legacy (V1/V2) reveal stays visible in this dialog until the owner closes it.
-    if (result?.mode === 'legacy') {
-      $('#exportKeyStatus').textContent = 'Your key is shown inside the secure frame above. Closing this dialog clears it.';
-    } else {
-      closeModals();
-    }
-  } catch (error) {
-    if (error?.code === 'EXPORT_AUTHORIZATION_DENIED') {
-      $('#exportKeyStatus').textContent = EXPORT_DENIED_MESSAGE;
-      toast(EXPORT_DENIED_MESSAGE);
-    } else {
-      toast('Key export could not be opened. Try again in a moment.');
-    }
-  } finally {
-    button.disabled = false;
-    button.innerHTML = 'Continue in secure window <span>→</span>';
-  }
-}
-
 function bindEvents() {
   $$('.nav-item').forEach(item => item.addEventListener('click', () => goTo(item.dataset.page)));
   $$('[data-go]').forEach(item => item.addEventListener('click', () => goTo(item.dataset.go)));
-  $('#quickRequest').addEventListener('click', () => state.auth.profile ? goTo('get-paid') : openAuthFlow());
-  $('#requestFromBalance').addEventListener('click', () => state.auth.profile ? goTo('get-paid') : openAuthFlow());
-  $('#createRequest').addEventListener('click', () => state.auth.profile ? goTo('get-paid') : openAuthFlow());
+  const sharePaymentPage = () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow();
+  $('#quickRequest').addEventListener('click', sharePaymentPage);
+  $('#requestFromBalance').addEventListener('click', sharePaymentPage);
+  $('#createRequest').addEventListener('click', sharePaymentPage);
+  $('#sharePaidPage').addEventListener('click', sharePaymentPage);
+  // The sender flow is reachable from public /@username pages. Keep this legacy trigger inert and
+  // hidden in the recipient dashboard so it never adds crypto language or choices there.
   $('#sendFromBalance').addEventListener('click', openPay);
   $('#openIdentity').addEventListener('click', () => state.auth.profile ? goTo('identity') : openAuthFlow());
-  $('#routeRefresh').addEventListener('click', () => refreshRoutes());
   $('#toggleBalance').addEventListener('click', () => { state.balanceVisible = !state.balanceVisible; renderIdentity(); });
   $('#copyHandle').addEventListener('click', () => state.auth.profile ? copyText(`@${state.auth.profile.username}`, 'Handoff username copied') : openAuthFlow());
   $('#copyPublicLink').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
-  $('#copyWallet').addEventListener('click', () => state.auth.profile ? copyText(state.auth.profile.wallet, 'Monad recipient wallet copied') : openAuthFlow());
   $('#shareProfile').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
-  $('#openWalletSettings').addEventListener('click', openWalletSettings);
-  $('#exportWalletKey').addEventListener('click', openExportKey);
-  $('#continueExportKey').addEventListener('click', continueExportKey);
   $('#profileButton').addEventListener('click', () => state.auth.profile ? goTo('identity') : openAuthFlow());
   $('#authButton').addEventListener('click', () => state.auth.signedIn ? signOut() : openAuthFlow());
-  $('#openSecurity').addEventListener('click', () => toast('Handoff is non-custodial: Relay routes directly to a verified Monad recipient wallet.'));
-  $('#openNotifications').addEventListener('click', () => toast('Settlement and request updates appear after they are stored server-side.'));
+  $('#openSecurity').addEventListener('click', () => toast('Handoff keeps getting paid simple: sign in securely and share your username.'));
+  $('#openNotifications').addEventListener('click', () => toast('Payment updates appear here after they are confirmed.'));
   $('#mobileMenu').addEventListener('click', () => $('.sidebar').classList.toggle('open'));
   $('#modalBackdrop').addEventListener('click', closeModals);
   $$('[data-close]').forEach(button => button.addEventListener('click', closeModals));
@@ -1055,18 +1004,6 @@ function bindEvents() {
     resetPaymentFlow();
     prepareQuote(state.selectedNetwork);
   });
-  $$('.segmented button').forEach(button => button.addEventListener('click', () => {
-    $$('.segmented button').forEach(item => item.classList.toggle('active', item === button));
-    state.requestType = button.dataset.requestType;
-    updateRequestPreview();
-  }));
-  $('#requestAmount').addEventListener('input', updateRequestPreview);
-  $('#requestNote').addEventListener('input', updateRequestPreview);
-  $('#previewEdit').addEventListener('click', () => $('#requestAmount').focus());
-  $$('.filter').forEach(button => button.addEventListener('click', () => {
-    $$('.filter').forEach(item => item.classList.toggle('active', item === button));
-    toast('Activity filters apply once confirmed payments are stored.');
-  }));
   $('#continueWithEmail').addEventListener('click', continueWithEmail);
   $('#retryWalletSetup').addEventListener('click', retryWalletSetup);
   $('#claimUsernameButton').addEventListener('click', claimUsername);
@@ -1088,7 +1025,6 @@ function init() {
   renderRecipientProof();
   renderRails();
   renderNetworkPicker();
-  updateRequestPreview();
   bindEvents();
   refreshRoutes(true);
   initialiseDynamic();

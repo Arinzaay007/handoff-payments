@@ -64,6 +64,12 @@ supabase.request = async (requestPath, options = {}) => {
       source_chain_id: body.p_source_chain_id,
       source_currency: body.p_source_currency,
       source_amount: body.p_source_amount,
+      quoted_source_amount: body.p_source_amount,
+      requested_destination_amount: body.p_requested_destination_amount,
+      quoted_route_fee_amount: body.p_quoted_route_fee_amount,
+      actual_source_amount: null,
+      exact_output: true,
+      true_exact_output: true,
       minimum_destination_amount: body.p_minimum_destination_amount,
       relay_request_id: body.p_relay_request_id,
       quote_expires_at: body.p_quote_expires_at,
@@ -120,8 +126,15 @@ function seedAttempt(fields) {
     recipient_wallet_id: 'wallet-morgan',
     source_chain_id: 8453,
     source_currency: fixtures.ORIGIN_USDC,
-    source_amount: 25_000_000,
-    minimum_destination_amount: 24_000_000,
+    // Exact-output attempts persist merchant output separately from the quoted payer debit.
+    source_amount: 25_500_000,
+    quoted_source_amount: 25_500_000,
+    actual_source_amount: null,
+    quoted_route_fee_amount: 500_000,
+    requested_destination_amount: 25_000_000,
+    exact_output: true,
+    true_exact_output: true,
+    minimum_destination_amount: 25_000_000,
     destination_chain_id: 143,
     status: 'quote_created',
     source_tx_hash: null,
@@ -175,7 +188,9 @@ test('a verified protocol.v2 quote becomes an executable approve + deposit plan 
     assert.equal(step.value, '0x0');
   }
   assert.equal(result.steps[1].to, fixtures.DEPOSITORY, 'the deposit pays the canonical depository from GET /chains');
-  assert.equal(result.minimumDestinationMinor, '24000000');
+  assert.equal(result.minimumDestinationMinor, '25000000');
+  assert.equal(result.sourceAmountMinor, '25500000');
+  assert.equal(result.routeFeeMinor, '500000');
 });
 
 test('a recomputed order ID that does not match the quote is refused', () => {
@@ -220,7 +235,7 @@ test('a deposit that commits to a different order ID is refused', () => {
 
 test('a deposit for a different amount than the requested input is refused', () => {
   const result = plan({ fixture: { depositAmount: 24_000_000n } });
-  assert.equal(result.reason, REASONS.AMOUNT);
+  assert.equal(result.reason, REASONS.SOURCE_AMOUNT);
 });
 
 test('native value attached to the deposit is refused', () => {
@@ -241,7 +256,7 @@ test('an approval that approves anything other than the depository is refused', 
 test('a quote without a minimum output cannot be settled-verified, so it is preview only', () => {
   const result = plan({ fixture: { minimumMinor: 0n } });
   assert.equal(result.executable, false);
-  assert.equal(result.reason, REASONS.MISSING_MINIMUM);
+  assert.equal(result.reason, REASONS.EXACT_OUTPUT);
 });
 
 test('a signature step is never executable', () => {
@@ -302,38 +317,46 @@ test('environment values can lower the caps but never raise them above 25 and 10
   assert.equal(output, '25000000 100000000');
 });
 
-test('createPaymentQuote refuses a per-payment overage before calling Relay or reserving anything', async () => {
+test('createPaymentQuote applies the per-payment cap to Relay’s quoted payer input, not the requested merchant output', async () => {
   resetStore();
+  relayQuote = fixtures.quoteFixture({
+    payer: PAYER,
+    recipient: RECIPIENT,
+    amountMinor: 1_000_000n,
+    sourceAmountMinor: 25_000_001n
+  }).quote;
   await assert.rejects(
-    payments.createPaymentQuote({ payer: PAYER, sourceNetwork: 'base', recipientHandle: 'morgan', amount: '25.000001' }),
+    payments.createPaymentQuote({ payer: PAYER, sourceNetwork: 'base', recipientHandle: 'morgan', amount: '1' }),
     error => error.code === 'PER_PAYMENT_CAP_EXCEEDED'
   );
-  assert.equal(relayCalls.createQuote.length, 0);
+  assert.equal(relayCalls.createQuote.length, 1, 'Relay quote is required before the real payer debit is known');
   assert.equal(store.inserts.length, 0);
 });
 
-test('createPaymentQuote refuses the payment that crosses the 100 USDC daily cap, and allows exactly 100', async () => {
+test('createPaymentQuote applies the daily cap to Relay’s quoted payer input and allows exactly the cap', async () => {
   resetStore();
-  for (let i = 0; i < 4; i += 1) seedAttempt({ source_amount: 20_000_000 });
+  for (let i = 0; i < 4; i += 1) seedAttempt({ source_amount: 20_000_000, quoted_source_amount: 20_000_000 });
+  relayQuote = fixtures.quoteFixture({ payer: PAYER, recipient: RECIPIENT, amountMinor: 1_000_000n, sourceAmountMinor: 20_000_001n }).quote;
   await assert.rejects(
-    payments.createPaymentQuote({ payer: PAYER, sourceNetwork: 'base', recipientHandle: 'morgan', amount: '20.000001' }),
+    payments.createPaymentQuote({ payer: PAYER, sourceNetwork: 'base', recipientHandle: 'morgan', amount: '1' }),
     error => error.code === 'DAILY_CAP_EXCEEDED'
   );
-  assert.equal(relayCalls.createQuote.length, 0);
-
-  // Exactly 100 USDC in the window is allowed. The preview here is for a non-executable quote, so nothing is reserved.
-  relayQuote = fixtures.quoteFixture({ payer: PAYER, recipient: RECIPIENT, withProtocol: false }).quote;
-  const result = await payments.createPaymentQuote({ payer: PAYER, sourceNetwork: 'base', recipientHandle: 'morgan', amount: '20' });
-  assert.equal(result.executable, false);
   assert.equal(relayCalls.createQuote.length, 1);
+
+  resetStore();
+  for (let i = 0; i < 4; i += 1) seedAttempt({ source_amount: 20_000_000, quoted_source_amount: 20_000_000 });
+  relayQuote = fixtures.quoteFixture({ payer: PAYER, recipient: RECIPIENT, amountMinor: 19_500_000n, sourceAmountMinor: 20_000_000n }).quote;
+  const result = await payments.createPaymentQuote({ payer: PAYER, sourceNetwork: 'base', recipientHandle: 'morgan', amount: '19.5' });
+  assert.equal(result.executable, true);
+  assert.equal(store.inserts.length, 1);
 });
 
 // ---- 3. Quote creation: payer-signing requirement and privacy --------------------------------------
 
 test('an executable quote reserves one attempt, requests protocol data, and never exposes the recipient wallet', async () => {
   resetStore();
-  relayQuote = fixtures.quoteFixture({ payer: PAYER, recipient: RECIPIENT }).quote;
-  const result = await payments.createPaymentQuote({ payer: PAYER, sourceNetwork: 'base', recipientHandle: '@Morgan', amount: '25' });
+  relayQuote = fixtures.quoteFixture({ payer: PAYER, recipient: RECIPIENT, amountMinor: 24_500_000n, sourceAmountMinor: 25_000_000n }).quote;
+  const result = await payments.createPaymentQuote({ payer: PAYER, sourceNetwork: 'base', recipientHandle: '@Morgan', amount: '24.5' });
 
   assert.equal(result.executable, true);
   assert.equal(result.status, 'quote_created');
@@ -342,7 +365,15 @@ test('an executable quote reserves one attempt, requests protocol data, and neve
   assert.equal(relayCalls.createQuote.length, 1);
   const sent = relayCalls.createQuote[0];
   assert.equal(sent.includeProtocolData, true);
+  assert.equal(sent.tradeType, 'EXACT_OUTPUT');
+  assert.equal(sent.amount, '24500000', 'Relay receives desired Monad-USDC output, not a payer input');
+  assert.equal(sent.enableTrueExactOutput, true);
+  assert.equal(sent.subsidizeFees, false);
   assert.equal(sent.recipient, RECIPIENT, 'the recipient comes from the server lookup');
+  assert.equal(result.quote.receive.requested, '24.50');
+  assert.equal(result.quote.receive.guaranteed, true);
+  assert.equal(result.quote.pay.amount, '25.00');
+  assert.equal(result.quote.pay.routeCost, '0.50');
   assert.equal(sent.user, PAYER);
   assert.equal(store.inserts.length, 1);
   assert.equal(store.inserts[0].p_recipient_wallet_id, 'wallet-morgan');
@@ -447,9 +478,9 @@ function rpcStub({ chainId = 143, status = '0x1', logs } = {}) {
   };
 }
 
-const verifyArgs = { txHash: DESTINATION_HASH, recipient: RECIPIENT, minimumMinor: '24000000', monadUsdc: MONAD.usdcAddress, monadChainId: 143, rpcUrl: 'https://rpc.test' };
+const verifyArgs = { txHash: DESTINATION_HASH, recipient: RECIPIENT, requiredMinor: '25000000', monadUsdc: MONAD.usdcAddress, monadChainId: 143, rpcUrl: 'https://rpc.test' };
 
-test('Monad settlement is verified only with a successful receipt and a USDC Transfer to the recipient at or above the minimum', async () => {
+test('Monad settlement is verified only with a successful receipt and an exact USDC Transfer to the recipient', async () => {
   const ok = await verifyMonadSettlement({ ...verifyArgs, fetchImpl: rpcStub() });
   assert.equal(ok.verified, true);
   assert.equal(ok.receivedMinor, '25000000');
@@ -466,9 +497,14 @@ test('a receipt with no USDC transfer to the recipient is not settlement', async
   assert.equal(result.reason, 'NO_USDC_TRANSFER_TO_RECIPIENT');
 });
 
-test('a transfer below the minimum Relay promised is not settlement', async () => {
-  const result = await verifyMonadSettlement({ ...verifyArgs, minimumMinor: '30000000', fetchImpl: rpcStub() });
-  assert.equal(result.reason, 'AMOUNT_BELOW_MINIMUM');
+test('a transfer below the exact requested amount is not settlement', async () => {
+  const result = await verifyMonadSettlement({ ...verifyArgs, requiredMinor: '30000000', fetchImpl: rpcStub() });
+  assert.equal(result.reason, 'AMOUNT_BELOW_REQUESTED');
+});
+
+test('a transfer above the exact requested amount is not settlement', async () => {
+  const result = await verifyMonadSettlement({ ...verifyArgs, requiredMinor: '24000000', fetchImpl: rpcStub() });
+  assert.equal(result.reason, 'AMOUNT_ABOVE_REQUESTED');
 });
 
 test('the wrong Monad chain is refused', async () => {
@@ -546,7 +582,7 @@ test('the receipt write sends only real table columns, so a routine refresh is n
   relayStatus = { status: 'pending', inTxHashes: [SOURCE_HASH] };
   store.writes.length = 0;
   await payments.getPaymentReceipt(attempt.id);
-  const columns = new Set(['status', 'relay_status', 'failure_code', 'destination_tx_hash', 'final_destination_amount', 'settled_at', 'relay_status_updated_at']);
+  const columns = new Set(['status', 'relay_status', 'failure_code', 'destination_tx_hash', 'final_destination_amount', 'actual_source_amount', 'settled_at', 'relay_status_updated_at']);
   for (const write of store.writes) {
     for (const key of Object.keys(write.body)) assert.ok(columns.has(key), `unexpected column ${key}`);
   }

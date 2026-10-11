@@ -1,7 +1,7 @@
 // Verifies Monad USDC settlement on-chain before a payment is shown as Settled.
 // Relay reporting "success" is necessary but not enough: the Monad receipt must succeed and must
-// contain an ERC-20 Transfer of the Monad USDC contract to the server-resolved recipient, for at
-// least the minimum output Relay promised at quote time.
+// contain an ERC-20 Transfer of the Monad USDC contract to the server-resolved recipient for the
+// exact requested amount. A shortfall or surplus is not recorded as a completed exact payment.
 
 const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const HASH_RE = /^0x[0-9a-fA-F]{64}$/;
@@ -33,9 +33,10 @@ function topicAddress(topic) {
 /**
  * @returns {Promise<{verified: boolean, reason: string, receivedMinor?: string}>}
  */
-async function verifyMonadSettlement({ txHash, recipient, minimumMinor, monadUsdc, monadChainId, rpcUrl, fetchImpl = fetch }) {
+async function verifyMonadSettlement({ txHash, recipient, requiredMinor, monadUsdc, monadChainId, rpcUrl, fetchImpl = fetch }) {
   if (!HASH_RE.test(String(txHash || ''))) return { verified: false, reason: 'INVALID_HASH' };
   if (!/^0x[0-9a-fA-F]{40}$/.test(String(recipient || ''))) return { verified: false, reason: 'INVALID_RECIPIENT' };
+  if (!/^\d+$/.test(String(requiredMinor ?? '')) || BigInt(requiredMinor) <= 0n) return { verified: false, reason: 'INVALID_REQUIRED_AMOUNT' };
 
   const chain = await rpcCall(rpcUrl, 'eth_chainId', [], fetchImpl);
   if (!chain.ok) return { verified: false, reason: 'RPC_UNAVAILABLE' };
@@ -59,9 +60,9 @@ async function verifyMonadSettlement({ txHash, recipient, minimumMinor, monadUsd
   }
 
   if (received === 0n) return { verified: false, reason: 'NO_USDC_TRANSFER_TO_RECIPIENT' };
-  if (received < BigInt(minimumMinor)) {
-    return { verified: false, reason: 'AMOUNT_BELOW_MINIMUM', receivedMinor: received.toString() };
-  }
+  const required = BigInt(requiredMinor);
+  if (received < required) return { verified: false, reason: 'AMOUNT_BELOW_REQUESTED', receivedMinor: received.toString() };
+  if (received > required) return { verified: false, reason: 'AMOUNT_ABOVE_REQUESTED', receivedMinor: received.toString() };
   return { verified: true, reason: 'VERIFIED', receivedMinor: received.toString() };
 }
 

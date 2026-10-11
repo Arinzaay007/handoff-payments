@@ -31,11 +31,12 @@ function recipientActivityItem(attempt) {
     label: LABELS[attempt.status] || 'Pending',
     final: isFinal(attempt.status),
     sourceNetwork: network ? { key: network.key, name: network.name } : null,
-    send: { amount: formatUsdc(attempt.source_amount), asset: 'USDC' },
     receive: {
       network: MONAD.name,
       asset: MONAD.asset,
-      minimum: attempt.minimum_destination_amount ? formatUsdc(attempt.minimum_destination_amount) : null,
+      requested: (attempt.requested_destination_amount || attempt.minimum_destination_amount)
+        ? formatUsdc(attempt.requested_destination_amount || attempt.minimum_destination_amount)
+        : null,
       amount: attempt.status === 'settled' && attempt.final_destination_amount
         ? formatUsdc(attempt.final_destination_amount)
         : null
@@ -59,7 +60,7 @@ function isVisibleRecipientActivity(row, profileId) {
 
 async function listRecipientActivity(profileId) {
   const rows = await request(
-    `payment_attempts?select=id,recipient_profile_id,status,source_chain_id,source_amount,minimum_destination_amount,final_destination_amount,source_tx_hash,destination_tx_hash,failure_code,created_at,updated_at`
+    `payment_attempts?select=id,recipient_profile_id,status,source_chain_id,requested_destination_amount,minimum_destination_amount,final_destination_amount,source_tx_hash,destination_tx_hash,failure_code,created_at,updated_at`
     + `&recipient_profile_id=eq.${encodeURIComponent(profileId)}`
     + `&source_tx_hash=not.is.null&status=not.in.(quote_created,awaiting_sender)`
     + `&order=created_at.desc&limit=${ACTIVITY_LIMIT}`
