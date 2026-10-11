@@ -29,9 +29,11 @@ test('the recipient browser bundle registers only Dynamic embedded EVM wallet co
 });
 
 test('recipient onboarding is passkey-first with an email fallback and has no key-export path', () => {
-  assert.match(indexHtml, /Sign in with a passkey or your email/);
-  assert.match(indexHtml, /Continue securely/);
+  assert.match(indexHtml, /New here\? Start with your email/);
+  assert.match(indexHtml, /Get started securely/);
+  assert.match(indexHtml, /Set up your passkey/);
   assert.match(bundleSource, /setShowAuthFlow\(true\)/);
+  assert.match(bundleSource, /useRegisterPasskey/, 'Dynamic owns the device passkey enrollment prompt');
   assert.match(bundleSource, /createWalletAccount\(/, 'Dynamic provisions the embedded account after hosted sign-in');
 
   const productSurface = bundleSource + appJs + indexHtml;
@@ -92,9 +94,10 @@ test('the server has no endpoint that exports or accepts a key', () => {
   assert.match(serverJs, /requireDynamicUser\(req\.headers\.authorization\)/, 'the owner endpoints stay authenticated');
 });
 
-test('onboarding uses Dynamic hosted auth and has no hand-built email, code, passkey, or wallet-address fields', () => {
+test('onboarding uses Dynamic hosted auth and no hand-built email, code, passkey, or wallet-address fields', () => {
   assert.match(appJs, /window\.HandoffDynamic\.openAuth\(\)/);
-  for (const removed of ['authEmail', 'authCode', 'sendEmailCode', 'verifyEmailCode', 'passkeySignIn', 'registerPasskey', 'data-auth-step="email"', 'data-auth-step="code"']) {
+  assert.match(appJs, /window\.HandoffDynamic\.registerPasskey\(\)/, 'passkey enrollment delegates to Dynamic');
+  for (const removed of ['authEmail', 'authCode', 'sendEmailCode', 'verifyEmailCode', 'passkeySignIn', 'data-auth-step="email"', 'data-auth-step="code"']) {
     assert.equal(indexHtml.includes(removed) || appJs.includes(removed), false, `${removed} must be removed`);
   }
   assert.equal(/<select/i.test(authModal), false, 'no wallet dropdown in onboarding');

@@ -12,7 +12,7 @@ const state = {
     ready: false,
     // True while Dynamic holds a signed-in session for this browser.
     signedIn: false,
-    // Set when the visitor chose "Continue with email", so a fresh sign-in opens onboarding.
+    // Set when the visitor starts secure access, so a fresh sign-in opens onboarding.
     awaitingSignIn: false,
     // Incremented to cancel any older provisioning loop.
     flowToken: 0,
@@ -751,7 +751,7 @@ async function expireSession() {
   try { await window.HandoffDynamic?.signOut?.(); } catch { /* Local state still resets below. */ }
   resetLocalSession();
   showAuthStep('start');
-  setAuthStatus('Your session ended. Continue securely to sign in again.');
+  setAuthStatus('Your session ended. Get started securely to access your payment page again.');
   openModal('authModal');
 }
 
@@ -771,6 +771,15 @@ function showClaimStep(flow) {
   if (flow !== state.auth.flowToken) return;
   showAuthStep('claim');
   $('#claimStatus').textContent = '';
+}
+
+function showPasskeyStep(flow) {
+  if (flow !== state.auth.flowToken) return;
+  const button = $('#registerPasskey');
+  button.disabled = false;
+  button.innerHTML = 'Set up passkey <span>→</span>';
+  $('#passkeyStatus').textContent = '';
+  showAuthStep('passkey');
 }
 
 // Polls the server until Dynamic has provisioned one verified embedded EVM wallet.
@@ -793,6 +802,13 @@ async function waitForEmbeddedWallet(flow) {
   }
 }
 
+async function startPaymentAccountSetup(flow) {
+  if (flow !== state.auth.flowToken) return;
+  showAuthStep('provisioning');
+  setProvisioningState();
+  await waitForEmbeddedWallet(flow);
+}
+
 async function resumeOnboarding() {
   const flow = ++state.auth.flowToken;
   showAuthStep('provisioning');
@@ -809,11 +825,38 @@ async function resumeOnboarding() {
       refreshPortfolio();
       return;
     }
+    // A passkey can only be enrolled after the first verified email session exists. Existing
+    // recipients who already enrolled one continue directly; new recipients get the normal
+    // device prompt before their payment name is created.
+    const hasPasskey = await window.HandoffDynamic?.hasPasskey?.();
+    if (hasPasskey === false) return showPasskeyStep(flow);
   } catch (error) {
     if (error.status === 401) return expireSession();
-    // Fall through: provisioning polling reports problems in friendly terms.
+    // If the provider cannot report passkey status, keep access available and let its hosted
+    // experience handle the next step rather than fabricating a claim about account security.
   }
-  await waitForEmbeddedWallet(flow);
+  await startPaymentAccountSetup(flow);
+}
+
+async function registerPasskey() {
+  const button = $('#registerPasskey');
+  const flow = state.auth.flowToken;
+  if (!window.HandoffDynamic?.registerPasskey) return startPaymentAccountSetup(flow);
+  button.disabled = true;
+  button.textContent = 'Opening your device prompt…';
+  $('#passkeyStatus').textContent = '';
+  try {
+    await window.HandoffDynamic.registerPasskey();
+    if (flow !== state.auth.flowToken) return;
+    $('#passkeyStatus').textContent = 'Passkey ready. Setting up your payment account…';
+    await startPaymentAccountSetup(flow);
+  } catch (error) {
+    console.warn('Handoff: passkey setup failed.', error);
+    if (flow !== state.auth.flowToken) return;
+    button.disabled = false;
+    button.innerHTML = 'Try passkey setup again <span>↻</span>';
+    $('#passkeyStatus').textContent = 'We could not set up your passkey. Try again or use another device.';
+  }
 }
 
 async function retryWalletSetup() {
@@ -832,7 +875,7 @@ async function retryWalletSetup() {
   await waitForEmbeddedWallet(flow);
 }
 
-// Dynamic's hosted widget takes over for email code and passkey. Our modal steps aside.
+// Dynamic's hosted widget takes over for first-time email setup and returning-passkey access. Our modal steps aside.
 function continueWithEmail() {
   if (!state.auth.ready || !window.HandoffDynamic) return toast('Secure sign-in is still loading. Try again in a moment.');
   state.auth.awaitingSignIn = true;
@@ -1006,6 +1049,7 @@ function bindEvents() {
   });
   $('#continueWithEmail').addEventListener('click', continueWithEmail);
   $('#retryWalletSetup').addEventListener('click', retryWalletSetup);
+  $('#registerPasskey').addEventListener('click', registerPasskey);
   $('#claimUsernameButton').addEventListener('click', claimUsername);
 }
 

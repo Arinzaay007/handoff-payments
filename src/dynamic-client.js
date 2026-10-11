@@ -10,7 +10,9 @@
  *   openAuth()          opens Dynamic's hosted sign-in widget (passkey or email fallback)
  *   getToken()          current Dynamic access token, or null (sent to the server as a Bearer)
  *   retryWalletSetup()  asks Dynamic to provision the embedded EVM account again
- *   signOut()           ends the Dynamic session
+ *   hasPasskey()         reports whether the signed-in recipient has enrolled a passkey
+ *   registerPasskey()    opens the device's normal passkey enrollment prompt
+ *   signOut()            ends the Dynamic session
  */
 import { createElement as h, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -20,7 +22,9 @@ import {
   getAuthToken,
   useDynamicContext,
   useDynamicWaas,
-  useIsLoggedIn
+  useGetPasskeys,
+  useIsLoggedIn,
+  useRegisterPasskey
 } from '@dynamic-labs/sdk-react-core';
 import { DynamicWaasEVMConnectors } from '@dynamic-labs/waas-evm';
 import { buildDynamicSettings } from './dynamicSettings.js';
@@ -43,6 +47,8 @@ function DynamicBridge({ onChange }) {
   const { setShowAuthFlow, sdkHasLoaded, handleLogOut } = useDynamicContext();
   const isLoggedIn = useIsLoggedIn();
   const { createWalletAccount } = useDynamicWaas();
+  const getPasskeys = useGetPasskeys();
+  const registerPasskey = useRegisterPasskey();
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -56,12 +62,17 @@ function DynamicBridge({ onChange }) {
         undefined,
         { skipCloseAuthFlow: true }
       ),
+      hasPasskey: async () => {
+        const passkeys = await getPasskeys();
+        return Array.isArray(passkeys) && passkeys.length > 0;
+      },
+      registerPasskey: () => registerPasskey(),
       signOut: () => handleLogOut()
     };
     const waiters = apiWaiters;
     apiWaiters = [];
     waiters.forEach(callback => callback(api));
-  }, [createWalletAccount, handleLogOut, setShowAuthFlow]);
+  }, [createWalletAccount, getPasskeys, handleLogOut, registerPasskey, setShowAuthFlow]);
 
   useEffect(() => {
     if (!sdkHasLoaded) return;
@@ -97,5 +108,7 @@ window.HandoffDynamic = {
   openAuth: () => requireApi().openAuth(),
   getToken: () => (api ? api.getToken() : null),
   retryWalletSetup: () => requireApi().retryWalletSetup(),
+  hasPasskey: () => requireApi().hasPasskey(),
+  registerPasskey: () => requireApi().registerPasskey(),
   signOut: () => (api ? api.signOut() : undefined)
 };
