@@ -199,6 +199,33 @@ test('a claimed recipient can show a local QR code for exactly their canonical p
   assert.equal(/amount|note|request/i.test(doc.querySelector('#qrModal').textContent), false, 'QR shares only the payment page');
 });
 
+test('a recipient can personalise their display name without changing their Handoff username or QR destination', async () => {
+  const { doc, requests } = await signInWithPortfolio({
+    balance: { status: 'available', amount: '12.00' }, activity: [], checkedAt: '2026-10-11T13:50:00.000Z'
+  }, {
+    'PATCH /api/me/profile': request => {
+      assert.deepEqual(request.body, { displayName: 'Morgan’s Market' });
+      return { body: { profile: { ...MORGAN_PROFILE, displayName: 'Morgan’s Market' } } };
+    }
+  });
+
+  await waitFor(() => doc.querySelector('#editProfile').disabled === false, 'profile edit control');
+  doc.querySelector('#editProfile').click();
+  assert.equal(doc.querySelector('#profileModal').classList.contains('visible'), true);
+  assert.equal(doc.querySelector('#displayNameInput').value, 'Morgan Ellis');
+
+  doc.querySelector('#displayNameInput').value = 'Morgan’s Market';
+  doc.querySelector('#saveProfileName').click();
+  await waitFor(() => doc.querySelector('#profileName').textContent === 'Morgan’s Market', 'updated display name');
+
+  const update = requests.find(request => request.method === 'PATCH' && request.url === '/api/me/profile');
+  assert.deepEqual(update.body, { displayName: 'Morgan’s Market' });
+  assert.match(doc.querySelector('#profileHandle').textContent, /@morgan/);
+  assert.equal(doc.querySelector('#sharePageLink').textContent, 'handoff.test/@morgan');
+  assert.match(doc.querySelector('#qrModal').textContent, /Download poster/);
+  assert.equal(/wallet|seed|private key|blockchain/i.test(doc.querySelector('#profileModal').textContent), false);
+});
+
 test('the public /@username page never loads the owner portfolio', async () => {
   const { requests, doc } = await loadApp({
     publicHandle: 'morgan',

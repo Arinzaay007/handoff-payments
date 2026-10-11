@@ -69,7 +69,7 @@
 
       <section class="page" id="identityPage">
         <div class="wide-intro"><span class="label">YOUR PAYMENT NAME</span><h2>Your name is how you get paid.</h2><p>Choose one simple username, then share it to get paid.</p></div>
-        <div class="identity-layout"><article class="panel profile-card"><div class="profile-cover"></div><div id="profileAvatar" class="profile-avatar gradient-avatar">H</div><h2 id="profileName">Get started with Handoff</h2><p id="profileHandle">Get started with email, then use a passkey for quicker access.</p><button class="button button-light full" id="shareProfile">Share my payment page <span>↗</span></button></article><article class="panel aliases-panel"><div class="panel-head"><div><span class="label">HANDOFF USERNAME</span><h2>Claim one canonical payment identity.</h2></div></div><div id="aliasList" class="alias-list"></div><div class="alias-safety"><span>✓</span><p><strong>Simple secure access:</strong> sign in with a passkey or email, then share your username to get paid.</p></div></article></div>
+        <div class="identity-layout"><article class="panel profile-card"><div class="profile-cover"></div><div id="profileAvatar" class="profile-avatar gradient-avatar">H</div><span class="label profile-preview-label">PUBLIC PAYMENT PROFILE</span><h2 id="profileName">Get started with Handoff</h2><p id="profileHandle">Get started with email, then use a passkey for quicker access.</p><p class="profile-preview-copy">This is the name people see when they open your payment page or scan your QR code.</p><div class="profile-actions"><button class="button button-light" id="editProfile">Edit display name <span>✦</span></button><button class="button button-ghost-dark" id="shareProfile">Share my payment page <span>↗</span></button></div></article><article class="panel aliases-panel"><div class="panel-head"><div><span class="label">HANDOFF USERNAME</span><h2>Claim one canonical payment identity.</h2></div></div><div id="aliasList" class="alias-list"></div><div class="alias-safety"><span>✓</span><p><strong>Simple secure access:</strong> sign in with a passkey or email, then share your username to get paid.</p></div></article></div>
       </section>
     </main>
   </div>
@@ -103,9 +103,19 @@
       <p class="modal-description">Anyone can scan this to open your payment page.</p>
       <div class="qr-image-frame"><img id="paymentQrImage" alt="QR code for your Handoff payment page" hidden /><span id="paymentQrLoading">Creating your QR code…</span></div>
       <code class="qr-payment-url" id="qrPaymentUrl">—</code>
-      <div class="qr-payment-actions"><button class="button button-light" id="copyPaymentQrLink">Copy payment page <span>↗</span></button><button class="button button-ghost-dark" id="downloadPaymentQr">Download QR <span>↓</span></button></div>
+      <div class="qr-payment-actions"><button class="button button-light" id="copyPaymentQrLink">Copy payment page <span>↗</span></button><button class="button button-ghost-dark" id="downloadPaymentQr">Download QR <span>↓</span></button><button class="button button-ghost-dark" id="downloadPaymentPoster">Download poster <span>✦</span></button></div>
       <p class="modal-note" id="qrPaymentStatus" aria-live="polite"></p>
     </div>
+  </section>
+
+  <section class="modal compact-modal profile-editor-modal" id="profileModal" role="dialog" aria-modal="true" aria-labelledby="profileModalTitle" aria-hidden="true">
+    <button class="modal-close" data-close="profileModal" aria-label="Close">×</button>
+    <span class="label">YOUR PUBLIC PROFILE</span>
+    <h2 id="profileModalTitle">Make your payment page recognisable.</h2>
+    <p class="modal-description">Your display name appears on your Handoff payment page, QR poster, and payment review. Your @username stays the same.</p>
+    <label for="displayNameInput">Display name<input id="displayNameInput" autocomplete="name" maxlength="48" placeholder="Your name or business name" /></label>
+    <button id="saveProfileName" class="button button-dark full">Save display name <span>→</span></button>
+    <p class="modal-note" id="profileEditorStatus" aria-live="polite"></p>
   </section>
 
   <section class="modal" id="authModal" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">

@@ -5,7 +5,7 @@ const zlib = require('zlib');
 const { config, status: configurationStatus, publicRuntimeConfig } = require('./src/config');
 const { resolvePublicRecipient } = require('./src/usernameService');
 const { requireDynamicUser, requireEmbeddedWallet, hasEmbeddedWallet } = require('./src/dynamicAuth');
-const { getProfileForSubject, claimProfile, publicProfileResponse } = require('./src/profileService');
+const { getProfileForSubject, claimProfile, publicProfileResponse, updateProfileDisplayName } = require('./src/profileService');
 const { getPublicProfile } = require('./src/publicProfile');
 const { MONAD, publicSourceNetworks } = require('./src/paymentNetworks');
 const { getRecipientPortfolio } = require('./src/portfolio');
@@ -169,6 +169,22 @@ const server = http.createServer(async (req, res) => {
       const profile = await getProfileForSubject(user.subject);
       // Never return wallet addresses here: onboarding must not expose the recipient wallet.
       return send(res, 200, JSON.stringify({ profile: publicProfileResponse(profile), email: user.email }));
+    } catch (error) {
+      return sendError(res, error);
+    }
+  }
+
+  // A display name makes the public payment page recognisable. It never changes the canonical
+  // username, recipient wallet, or payment route, and is scoped only by the verified session.
+  if (req.method === 'PATCH' && url.pathname === '/api/me/profile') {
+    try {
+      const user = await requireDynamicUser(req.headers.authorization);
+      const body = await readJson(req);
+      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1 || typeof body.displayName !== 'string') {
+        return send(res, 400, JSON.stringify({ message: 'Send only a display name.', code: 'FIELD_NOT_ALLOWED' }));
+      }
+      const profile = await updateProfileDisplayName({ subject: user.subject, displayName: body.displayName });
+      return send(res, 200, JSON.stringify({ profile }));
     } catch (error) {
       return sendError(res, error);
     }

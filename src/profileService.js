@@ -55,4 +55,52 @@ async function claimProfile({ subject, username, displayName, walletAddress }) {
   };
 }
 
-module.exports = { getProfileForSubject, claimProfile, publicProfileResponse };
+// A payment name is permanent; the display name is deliberately separate so a recipient can make
+// their shared page recognisable without changing their canonical identity or any payment route.
+function validateDisplayName(input) {
+  if (typeof input !== 'string') {
+    const error = new Error('Enter a display name.');
+    error.code = 'INVALID_DISPLAY_NAME';
+    error.status = 400;
+    throw error;
+  }
+  if (/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/.test(input)) {
+    const error = new Error('Use a single-line display name.');
+    error.code = 'INVALID_DISPLAY_NAME';
+    error.status = 400;
+    throw error;
+  }
+  const displayName = input.normalize('NFKC').trim().replace(/\s+/g, ' ');
+  if (!displayName || Array.from(displayName).length > 48) {
+    const error = new Error('Display names must be between 1 and 48 characters.');
+    error.code = 'INVALID_DISPLAY_NAME';
+    error.status = 400;
+    throw error;
+  }
+  return displayName;
+}
+
+async function updateProfileDisplayName({ subject, displayName }) {
+  const name = validateDisplayName(displayName);
+  // Scope the update with the verified Dynamic subject. No browser-supplied profile ID is accepted.
+  const rows = await request(
+    `profiles?auth_subject=eq.${encodeURIComponent(subject)}&select=id,username,display_name,avatar_url`,
+    { method: 'PATCH', body: { display_name: name } }
+  );
+  const profile = rows?.[0];
+  if (!profile) {
+    const error = new Error('Claim your Handoff username before editing your profile.');
+    error.code = 'PROFILE_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+  return publicProfileResponse(profile);
+}
+
+module.exports = {
+  getProfileForSubject,
+  claimProfile,
+  publicProfileResponse,
+  validateDisplayName,
+  updateProfileDisplayName
+};

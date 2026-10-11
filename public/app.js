@@ -207,6 +207,7 @@ function renderIdentity() {
   $('#sharePageLink').textContent = profile ? canonicalPaymentUrl(profile.username).replace(/^https?:\/\//, '') : '—';
   $('#sharePaidPage').disabled = !profile;
   $('#showPaymentQr').disabled = !profile;
+  $('#editProfile').disabled = !profile;
   if (!profile) currentPaymentQr = null;
   renderBalance();
 
@@ -972,7 +973,12 @@ async function openPaymentQr() {
     const dataUrl = await window.HandoffQr.paymentPageDataUrl(url);
     // A profile can change while the browser is producing the local image. Never reuse a stale QR.
     if (url !== paymentQrUrl()) return;
-    currentPaymentQr = { dataUrl, url, username: profile.username };
+    currentPaymentQr = {
+      dataUrl,
+      url,
+      username: profile.username,
+      displayName: profile.displayName || profile.username
+    };
     $('#paymentQrImage').src = dataUrl;
     $('#paymentQrImage').hidden = false;
     $('#paymentQrLoading').hidden = true;
@@ -998,6 +1004,146 @@ function downloadPaymentQr() {
   document.body.appendChild(link);
   link.click();
   link.remove();
+}
+
+function drawRoundedRect(context, x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  context.beginPath();
+  context.moveTo(x + r, y);
+  context.arcTo(x + width, y, x + width, y + height, r);
+  context.arcTo(x + width, y + height, x, y + height, r);
+  context.arcTo(x, y + height, x, y, r);
+  context.arcTo(x, y, x + width, y, r);
+  context.closePath();
+}
+
+function loadCanvasImage(source) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('The QR image could not be used.'));
+    image.src = source;
+  });
+}
+
+function fitPosterText(context, text, maxWidth, startSize, minSize = 44) {
+  for (let size = startSize; size >= minSize; size -= 2) {
+    context.font = `800 ${size}px system-ui, -apple-system, BlinkMacSystemFont, sans-serif`;
+    if (context.measureText(text).width <= maxWidth) return size;
+  }
+  return minSize;
+}
+
+async function downloadPaymentPoster() {
+  if (!currentPaymentQr?.dataUrl || !currentPaymentQr?.username) return toast('Create your QR code first.');
+  const button = $('#downloadPaymentPoster');
+  const qr = currentPaymentQr;
+  button.disabled = true;
+  button.textContent = 'Preparing poster…';
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1440;
+    canvas.height = 1800;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Poster graphics are unavailable in this browser.');
+
+    // This is intentionally a local rendering: the QR payload remains only the canonical /@username URL.
+    context.fillStyle = '#f5f5ee';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#cdf96d';
+    context.beginPath();
+    context.arc(1260, 150, 400, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = '#d9eeff';
+    context.beginPath();
+    context.arc(120, 1620, 330, 0, Math.PI * 2);
+    context.fill();
+
+    context.fillStyle = '#101713';
+    context.font = '800 66px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+    context.fillText('handoff', 116, 148);
+    context.fillStyle = '#66705f';
+    context.font = '700 28px ui-monospace, SFMono-Regular, Menlo, monospace';
+    context.fillText('A SIMPLE WAY TO PAY', 120, 214);
+
+    const name = String(qr.displayName || qr.username);
+    const nameSize = fitPosterText(context, name, 1200, 124);
+    context.fillStyle = '#101713';
+    context.font = `800 ${nameSize}px system-ui, -apple-system, BlinkMacSystemFont, sans-serif`;
+    context.fillText(name, 120, 430);
+    context.fillStyle = '#60705a';
+    context.font = '600 48px ui-monospace, SFMono-Regular, Menlo, monospace';
+    context.fillText(`@${qr.username}`, 124, 505);
+    context.fillStyle = '#4e584b';
+    context.font = '500 42px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+    context.fillText('Scan to open my payment page', 124, 620);
+
+    drawRoundedRect(context, 120, 725, 1200, 820, 58);
+    context.fillStyle = '#ffffff';
+    context.fill();
+    context.strokeStyle = 'rgba(16, 23, 19, .08)';
+    context.lineWidth = 3;
+    context.stroke();
+
+    const image = await loadCanvasImage(qr.dataUrl);
+    context.drawImage(image, 285, 810, 870, 870);
+    context.fillStyle = '#64705f';
+    context.font = '600 29px ui-monospace, SFMono-Regular, Menlo, monospace';
+    context.textAlign = 'center';
+    context.fillText(qr.url.replace(/^https?:\/\//, ''), 720, 1702);
+    context.textAlign = 'left';
+
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('The poster could not be created.');
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `handoff-${qr.username}-payment-poster.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('Payment poster downloaded');
+  } catch (error) {
+    console.warn('Handoff: payment poster could not be created.', error);
+    toast('We could not create your poster. Try again in a moment.');
+  } finally {
+    button.disabled = false;
+    button.innerHTML = 'Download poster <span>✦</span>';
+  }
+}
+
+function openProfileEditor() {
+  const profile = state.auth.profile;
+  if (!profile) return openAuthFlow();
+  $('#displayNameInput').value = profile.displayName || profile.username;
+  $('#profileEditorStatus').textContent = '';
+  openModal('profileModal');
+  $('#displayNameInput').focus();
+}
+
+async function saveProfileName() {
+  const displayName = $('#displayNameInput').value;
+  const button = $('#saveProfileName');
+  button.disabled = true;
+  button.textContent = 'Saving…';
+  $('#profileEditorStatus').textContent = '';
+  try {
+    const data = await apiFetch('/api/me/profile', { method: 'PATCH', body: { displayName } });
+    state.auth.profile = data.profile;
+    // The QR payload itself cannot change, but its downloaded poster should always use the new name.
+    currentPaymentQr = null;
+    renderIdentity();
+    closeModals();
+    toast('Your public payment profile is updated.');
+  } catch (error) {
+    if (error.status === 401) return expireSession();
+    $('#profileEditorStatus').textContent = error.message || 'We could not save your display name.';
+    toast(error.message || 'We could not save your display name.');
+  } finally {
+    button.disabled = false;
+    button.innerHTML = 'Save display name <span>→</span>';
+  }
 }
 
 async function initialiseDynamic() {
@@ -1070,6 +1216,7 @@ function bindEvents() {
   $('#showPaymentQr').addEventListener('click', openPaymentQr);
   $('#copyPaymentQrLink').addEventListener('click', copyPaymentQrLink);
   $('#downloadPaymentQr').addEventListener('click', downloadPaymentQr);
+  $('#downloadPaymentPoster').addEventListener('click', downloadPaymentPoster);
   // The sender flow is reachable from public /@username pages. Keep this legacy trigger inert and
   // hidden in the recipient dashboard so it never adds crypto language or choices there.
   $('#sendFromBalance').addEventListener('click', openPay);
@@ -1078,6 +1225,14 @@ function bindEvents() {
   $('#copyHandle').addEventListener('click', () => state.auth.profile ? copyText(`@${state.auth.profile.username}`, 'Handoff username copied') : openAuthFlow());
   $('#copyPublicLink').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
   $('#shareProfile').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
+  $('#editProfile').addEventListener('click', openProfileEditor);
+  $('#saveProfileName').addEventListener('click', saveProfileName);
+  $('#displayNameInput').addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      saveProfileName();
+    }
+  });
   $('#profileButton').addEventListener('click', () => state.auth.profile ? goTo('identity') : openAuthFlow());
   $('#authButton').addEventListener('click', () => state.auth.signedIn ? signOut() : openAuthFlow());
   $('#openSecurity').addEventListener('click', () => toast('Handoff keeps getting paid simple: sign in securely and share your username.'));
