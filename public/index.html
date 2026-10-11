@@ -22,7 +22,7 @@
       </nav>
       <div class="sidebar-foot">
         <button id="openSecurity" class="security-card"><span class="security-icon">✓</span><span><strong>Simple, secure payments</strong><small>Share your name. Get paid.</small></span><span class="arrow">›</span></button>
-        <button id="profileButton" class="profile-mini"><span id="profileMiniAvatar" class="avatar gradient-avatar">H</span><span><b id="profileMiniName">Sign in to Handoff</b><small id="profileMiniHandle">Claim your payment name</small></span><span class="more">•••</span></button>
+        <button id="profileButton" class="profile-mini"><span id="profileMiniAvatar" class="avatar gradient-avatar">H</span><span><b id="profileMiniName">Get started with Handoff</b><small id="profileMiniHandle">Create your payment name</small></span><span class="more">•••</span></button>
       </div>
     </aside>
 
@@ -34,7 +34,7 @@
         <div class="top-actions">
           <button class="icon-button" id="copyHandle" aria-label="Copy payment handle" title="Copy your payment handle">⧉</button>
           <button class="icon-button" id="openNotifications" aria-label="Notifications">♢</button>
-          <button id="authButton" class="button button-dark">Sign in <span>↗</span></button>
+          <button id="authButton" class="button button-dark">Get started <span>↗</span></button>
           <button id="quickRequest" class="button button-ghost-dark">Share payment page <span>↗</span></button>
         </div>
       </header>
@@ -44,13 +44,13 @@
           <article class="balance-card">
             <div class="balance-head"><span>Available balance</span><button class="eye-button" aria-label="Toggle balance visibility" id="toggleBalance">◉</button></div>
             <div class="balance-amount" id="balanceAmount">—</div>
-            <div class="balance-sub" id="balanceSub"><span class="stable-dot">$</span> Sign in to view your confirmed balance</div>
+            <div class="balance-sub" id="balanceSub"><span class="stable-dot">$</span> Get started to view your confirmed balance</div>
             <div class="balance-actions"><button class="button button-light" id="requestFromBalance"><span class="button-symbol">↗</span> Share payment page</button><button id="sendFromBalance" hidden aria-hidden="true" tabindex="-1"></button></div>
             <div class="card-shine"></div>
           </article>
           <article class="identity-card">
             <div class="identity-top"><div><span class="label">YOUR PAYMENT NAME</span><h2>One name. Easy to share.</h2></div><button class="circle-arrow" id="openIdentity">↗</button></div>
-            <div class="handle-box"><div id="identityAvatar" class="handle-avatar gradient-avatar">H</div><div><strong id="identityHandle">Sign in to claim your @username</strong><span id="identityLink">Create a simple page for people to pay you.</span></div><button class="copy-small" id="copyPublicLink">Copy</button></div>
+            <div class="handle-box"><div id="identityAvatar" class="handle-avatar gradient-avatar">H</div><div><strong id="identityHandle">Get started to claim your @username</strong><span id="identityLink">Create a simple page for people to pay you.</span></div><button class="copy-small" id="copyPublicLink">Copy</button></div>
           </article>
         </section>
 
@@ -62,14 +62,14 @@
 
       <section class="page" id="get-paidPage">
         <div class="wide-intro"><span class="label">GET PAID</span><h2>Share your payment page.</h2><p>Your Handoff name is all people need to pay you.</p></div>
-        <article class="panel share-page-card"><div class="share-page-icon">↗</div><span class="label">YOUR PAYMENT PAGE</span><h2 id="sharePageTitle">Sign in to create your payment page.</h2><p id="sharePageCopy">Use a passkey or email to claim your Handoff name.</p><div class="share-page-link" id="sharePageLink">—</div><button class="button button-dark" id="sharePaidPage">Copy payment page <span>↗</span></button></article>
+        <article class="panel share-page-card"><div class="share-page-icon">↗</div><span class="label">YOUR PAYMENT PAGE</span><h2 id="sharePageTitle">Get started to create your payment page.</h2><p id="sharePageCopy">New here? Start with email, then set up a passkey.</p><div class="share-page-link" id="sharePageLink">—</div><button class="button button-dark" id="sharePaidPage">Copy payment page <span>↗</span></button></article>
       </section>
 
       <section class="page" id="activityPage"><div class="wide-intro"><span class="label">ACTIVITY</span><h2>Your payment activity.</h2><p>See every payment that has completed for your Handoff name.</p></div><article class="panel activity-page-list"><div class="activity-list" id="activityFullList"></div></article></section>
 
       <section class="page" id="identityPage">
         <div class="wide-intro"><span class="label">YOUR PAYMENT NAME</span><h2>Your name is how you get paid.</h2><p>Choose one simple username, then share it to get paid.</p></div>
-        <div class="identity-layout"><article class="panel profile-card"><div class="profile-cover"></div><div id="profileAvatar" class="profile-avatar gradient-avatar">H</div><h2 id="profileName">Sign in to Handoff</h2><p id="profileHandle">Use a passkey or email to manage your payment identity.</p><button class="button button-light full" id="shareProfile">Share my payment page <span>↗</span></button></article><article class="panel aliases-panel"><div class="panel-head"><div><span class="label">HANDOFF USERNAME</span><h2>Claim one canonical payment identity.</h2></div></div><div id="aliasList" class="alias-list"></div><div class="alias-safety"><span>✓</span><p><strong>Simple secure access:</strong> sign in with a passkey or email, then share your username to get paid.</p></div></article></div>
+        <div class="identity-layout"><article class="panel profile-card"><div class="profile-cover"></div><div id="profileAvatar" class="profile-avatar gradient-avatar">H</div><h2 id="profileName">Get started with Handoff</h2><p id="profileHandle">Get started with email, then use a passkey for quicker access.</p><button class="button button-light full" id="shareProfile">Share my payment page <span>↗</span></button></article><article class="panel aliases-panel"><div class="panel-head"><div><span class="label">HANDOFF USERNAME</span><h2>Claim one canonical payment identity.</h2></div></div><div id="aliasList" class="alias-list"></div><div class="alias-safety"><span>✓</span><p><strong>Simple secure access:</strong> sign in with a passkey or email, then share your username to get paid.</p></div></article></div>
       </section>
     </main>
   </div>
@@ -97,8 +97,9 @@
 
   <section class="modal" id="authModal" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
     <button class="modal-close" data-close="authModal" aria-label="Close">×</button>
-    <div class="modal-step active" data-auth-step="start"><span class="label">SECURE ACCESS</span><h2 id="authModalTitle">Start getting paid.</h2><p class="modal-description">Sign in with a passkey or your email to create your payment name.</p><button id="continueWithEmail" class="button button-dark full">Continue securely <span>→</span></button><p class="modal-note" id="authStatus">Use a passkey or email to sign in securely.</p></div>
+    <div class="modal-step active" data-auth-step="start"><span class="label">SECURE ACCESS</span><h2 id="authModalTitle">Create your payment page.</h2><p class="modal-description">New here? Start with your email. Returning users can choose their passkey.</p><button id="continueWithEmail" class="button button-dark full">Get started securely <span>→</span></button><p class="modal-note" id="authStatus">Your email starts setup once. After that, use a passkey for quicker access.</p></div>
     <div class="modal-step" data-auth-step="provisioning" aria-live="polite"><span class="label">ONE MOMENT</span><h2 id="provisioningTitle">Setting up your secure payment account…</h2><p class="modal-description" id="provisioningText">This only takes a few seconds.</p><button id="retryWalletSetup" class="button button-dark full" hidden>Retry setup <span>↻</span></button><p class="modal-note" id="provisioningStatus"></p></div>
+    <div class="modal-step" data-auth-step="passkey"><span class="label">QUICKER SIGN-IN</span><h2>Set up your passkey.</h2><p class="modal-description">Use your device’s face, fingerprint, or screen lock. You can still use email if you need it later.</p><button id="registerPasskey" class="button button-dark full">Set up passkey <span>→</span></button><p class="modal-note" id="passkeyStatus"></p></div>
     <div class="modal-step" data-auth-step="claim"><span class="label">CREATE YOUR PAYMENT NAME</span><h2>Choose your @username.</h2><p class="modal-description">Share your @username and people can pay you.</p><label>Handoff username<input id="claimUsername" autocomplete="username" maxlength="24" placeholder="yourname" /><small class="input-caption">Use 3–24 lowercase letters, numbers, or underscores.</small></label><button id="claimUsernameButton" class="button button-dark full">Claim username <span>→</span></button><p class="modal-note" id="claimStatus"></p></div>
   </section>
 

@@ -208,7 +208,7 @@ test('signed-out recipients are offered hosted secure sign-in without a wallet o
   doc.querySelector('#openIdentity').click();
   await settle();
   assert.equal(doc.querySelector('#authModal').classList.contains('visible'), true);
-  assert.match(doc.querySelector('#authModal').textContent, /passkey or your email/i);
+  assert.match(doc.querySelector('#authModal').textContent, /New here\? Start with your email/i);
   assert.equal(doc.querySelector('[data-auth-step="start"] input'), null, 'the sign-in step asks for no crypto credential');
   doc.querySelector('#continueWithEmail').click();
   assert.equal(dyn.calls.openAuth, 1, 'Dynamic owns passkey/email authentication');

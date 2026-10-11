@@ -15,10 +15,12 @@ const WALLET_ADDRESS = '0xAbCdEf0123456789aBCdef0123456789AbCdEf01';
 
 function fakeDynamic() {
   const dyn = {
-    calls: { openAuth: 0, retry: 0, signOut: 0 },
+    calls: { openAuth: 0, retry: 0, registerPasskey: 0, signOut: 0 },
     onChange: null,
     token: 'test-access-token',
     retryError: null,
+    registerPasskeyError: null,
+    passkeyEnrolled: true,
     onRetry: null,
     initialize: async ({ onChange }) => { dyn.onChange = onChange; },
     openAuth: () => { dyn.calls.openAuth += 1; },
@@ -27,6 +29,12 @@ function fakeDynamic() {
       dyn.calls.retry += 1;
       if (dyn.retryError) throw dyn.retryError;
       if (dyn.onRetry) dyn.onRetry();
+    },
+    hasPasskey: async () => dyn.passkeyEnrolled,
+    registerPasskey: async () => {
+      dyn.calls.registerPasskey += 1;
+      if (dyn.registerPasskeyError) throw dyn.registerPasskeyError;
+      dyn.passkeyEnrolled = true;
     },
     signOut: async () => { dyn.calls.signOut += 1; dyn.token = null; }
   };
@@ -107,6 +115,26 @@ test('Continue with email hands off to Dynamic\'s hosted widget', async () => {
   await settle();
   assert.equal(dyn.calls.openAuth, 1);
   assert.equal(authVisible(doc), false, 'our modal steps aside while Dynamic verifies the email code');
+});
+
+test('a new email recipient enrolls a device passkey before choosing a payment name', async () => {
+  const routes = {
+    'GET /api/me': () => ({ body: { profile: null, email: 'ada@example.com' } }),
+    'GET /api/me/wallet-status': () => ({ body: { ready: true } })
+  };
+  const dyn = fakeDynamic();
+  dyn.passkeyEnrolled = false;
+  const { doc } = await loadApp({ routes, dyn });
+  doc.querySelector('#continueWithEmail').click();
+  dyn.onChange({ signedIn: true });
+
+  await waitFor(() => activeStep(doc) === 'passkey', 'passkey enrollment step');
+  assert.match(doc.querySelector('#authModal').textContent, /face, fingerprint, or screen lock/i);
+  assert.equal(doc.querySelector('#authModal').textContent.includes(WALLET_ADDRESS), false);
+
+  doc.querySelector('#registerPasskey').click();
+  await waitFor(() => activeStep(doc) === 'claim', 'claim step after passkey enrollment');
+  assert.equal(dyn.calls.registerPasskey, 1);
 });
 
 test('after email verification the user sees the provisioning state, then the @username step', async () => {
