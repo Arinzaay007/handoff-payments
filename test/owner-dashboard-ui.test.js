@@ -69,7 +69,7 @@ function fakeApi(routes) {
   return { fetchImpl, requests };
 }
 
-async function loadApp({ routes = {}, dyn = fakeDynamic(), publicHandle = null } = {}) {
+async function loadApp({ routes = {}, dyn = fakeDynamic(), publicHandle = null, qr = null } = {}) {
   const api = fakeApi({
     'GET /api/public-config': () => ({ body: { dynamic: { enabled: true, environmentId: 'env-test' } } }),
     ...routes
@@ -82,6 +82,7 @@ async function loadApp({ routes = {}, dyn = fakeDynamic(), publicHandle = null }
   w.scrollTo = () => {};
   w.fetch = api.fetchImpl;
   w.HandoffDynamic = dyn;
+  if (qr) w.HandoffQr = qr;
   w.eval(appSource);
   await settle();
   return { dom, w, doc: w.document, dyn, requests: api.requests };
@@ -106,8 +107,8 @@ function signedInRoutes(portfolioBody) {
   };
 }
 
-async function signInWithPortfolio(portfolioBody, extraRoutes = {}) {
-  const loaded = await loadApp({ routes: { ...signedInRoutes(portfolioBody), ...extraRoutes } });
+async function signInWithPortfolio(portfolioBody, extraRoutes = {}, options = {}) {
+  const loaded = await loadApp({ routes: { ...signedInRoutes(portfolioBody), ...extraRoutes }, ...options });
   loaded.dyn.onChange({ signedIn: true });
   return loaded;
 }
@@ -172,6 +173,30 @@ test('before the portfolio answers, the dashboard says syncing rather than zero'
   assert.match(doc.querySelector('#activityList').textContent, /Checking for payments/);
   release();
   await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('5.00'), 'the real balance');
+});
+
+test('a claimed recipient can show a local QR code for exactly their canonical payment page', async () => {
+  const generated = [];
+  const qr = {
+    paymentPageDataUrl: async url => {
+      generated.push(url);
+      return 'data:image/png;base64,cXI=';
+    }
+  };
+  const { doc } = await signInWithPortfolio({
+    balance: { status: 'available', amount: '12.00' }, activity: [], checkedAt: '2026-10-11T13:50:00.000Z'
+  }, {}, { qr });
+
+  await waitFor(() => doc.querySelector('#identityHandle').textContent === '@morgan', 'recipient profile');
+  assert.equal(doc.querySelector('#showPaymentQr').disabled, false);
+  doc.querySelector('#showPaymentQr').click();
+  await waitFor(() => !doc.querySelector('#paymentQrImage').hidden, 'local QR image');
+
+  assert.deepEqual(generated, ['https://handoff.test/@morgan']);
+  assert.equal(doc.querySelector('#qrModal').classList.contains('visible'), true);
+  assert.equal(doc.querySelector('#paymentQrImage').src, 'data:image/png;base64,cXI=');
+  assert.match(doc.querySelector('#qrPaymentUrl').textContent, /handoff\.test\/@morgan/);
+  assert.equal(/amount|note|request/i.test(doc.querySelector('#qrModal').textContent), false, 'QR shares only the payment page');
 });
 
 test('the public /@username page never loads the owner portfolio', async () => {

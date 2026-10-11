@@ -11,3 +11,4 @@ npm-debug.log*
 # from src/dynamic-client.js, so it is never committed. The Render build command
 # runs `npm ci && npm run build`, which recreates it on every deploy.
 public/dynamic-client.js
+public/qr-client.js

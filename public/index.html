@@ -62,7 +62,7 @@
 
       <section class="page" id="get-paidPage">
         <div class="wide-intro"><span class="label">GET PAID</span><h2>Share your payment page.</h2><p>Your Handoff name is all people need to pay you.</p></div>
-        <article class="panel share-page-card"><div class="share-page-icon">↗</div><span class="label">YOUR PAYMENT PAGE</span><h2 id="sharePageTitle">Get started to create your payment page.</h2><p id="sharePageCopy">New here? Start with email, then set up a passkey.</p><div class="share-page-link" id="sharePageLink">—</div><button class="button button-dark" id="sharePaidPage">Copy payment page <span>↗</span></button></article>
+        <article class="panel share-page-card"><div class="share-page-icon">↗</div><span class="label">YOUR PAYMENT PAGE</span><h2 id="sharePageTitle">Get started to create your payment page.</h2><p id="sharePageCopy">New here? Start with email, then set up a passkey.</p><div class="share-page-link" id="sharePageLink">—</div><div class="share-page-actions"><button class="button button-dark" id="sharePaidPage">Copy payment page <span>↗</span></button><button class="button button-ghost-dark" id="showPaymentQr">Show QR code <span>⌁</span></button></div></article>
       </section>
 
       <section class="page" id="activityPage"><div class="wide-intro"><span class="label">ACTIVITY</span><h2>Your payment activity.</h2><p>See every payment that has completed for your Handoff name.</p></div><article class="panel activity-page-list"><div class="activity-list" id="activityFullList"></div></article></section>
@@ -95,6 +95,19 @@
   </section>
 
 
+  <section class="modal qr-payment-modal" id="qrModal" role="dialog" aria-modal="true" aria-labelledby="qrModalTitle">
+    <button class="modal-close" data-close="qrModal" aria-label="Close">×</button>
+    <div class="qr-payment-content">
+      <span class="label">YOUR PAYMENT PAGE</span>
+      <h2 id="qrModalTitle">Scan to pay <span id="qrHandle">@username</span>.</h2>
+      <p class="modal-description">Anyone can scan this to open your payment page.</p>
+      <div class="qr-image-frame"><img id="paymentQrImage" alt="QR code for your Handoff payment page" hidden /><span id="paymentQrLoading">Creating your QR code…</span></div>
+      <code class="qr-payment-url" id="qrPaymentUrl">—</code>
+      <div class="qr-payment-actions"><button class="button button-light" id="copyPaymentQrLink">Copy payment page <span>↗</span></button><button class="button button-ghost-dark" id="downloadPaymentQr">Download QR <span>↓</span></button></div>
+      <p class="modal-note" id="qrPaymentStatus" aria-live="polite"></p>
+    </div>
+  </section>
+
   <section class="modal" id="authModal" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
     <button class="modal-close" data-close="authModal" aria-label="Close">×</button>
     <div class="modal-step active" data-auth-step="start"><span class="label">SECURE ACCESS</span><h2 id="authModalTitle">Create your payment page.</h2><p class="modal-description">New here? Start with your email. Returning users can choose their passkey.</p><button id="continueWithEmail" class="button button-dark full">Get started securely <span>→</span></button><p class="modal-note" id="authStatus">Your email starts setup once. After that, use a passkey for quicker access.</p></div>
@@ -105,6 +118,7 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+  <script src="/qr-client.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

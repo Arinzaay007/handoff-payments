@@ -15,6 +15,7 @@ const dynamicAuth = read('src/dynamicAuth.js');
 const profileService = read('src/profileService.js');
 const payments = read('src/paymentService.js');
 const executionPlan = read('src/executionPlan.js');
+const qrClient = read('src/qr-client.js');
 const authModal = indexHtml.slice(indexHtml.indexOf('id="authModal"'), indexHtml.indexOf('<div class="toast"'));
 
 test('the recipient browser bundle registers only Dynamic embedded EVM wallet connectors', () => {
@@ -77,6 +78,17 @@ test('a shared payment page is neutral before the payer intentionally opens chec
   for (const infrastructureWord of ['Monad', 'USDC', 'EVM', 'Relay', 'wallet', 'network', 'gas', 'chain']) {
     assert.equal(publicLanding.toLowerCase().includes(infrastructureWord.toLowerCase()), false, `${infrastructureWord} is deferred until payer checkout`);
   }
+});
+
+test('recipient QR sharing encodes only a canonical payment-page URL locally', () => {
+  assert.match(indexHtml, /id="showPaymentQr"/);
+  assert.match(indexHtml, /id="paymentQrImage"/);
+  assert.match(appJs, /window\.HandoffQr\?\.paymentPageDataUrl/);
+  assert.match(appJs, /canonicalPaymentUrl\(username\)/);
+  assert.match(qrClient, /import QRCode from 'qrcode'/);
+  assert.match(qrClient, /new URL\(paymentPageUrl\)/);
+  assert.match(qrClient, /\/\@\[a-z0-9_\]\{3,24\}/i);
+  assert.doesNotMatch(qrClient + appJs.slice(appJs.indexOf('function paymentQrUrl'), appJs.indexOf('async function initialiseDynamic')), /requestAmount|requestNote|paymentAmount|note=/i);
 });
 
 test('the browser profile response excludes the recipient wallet while the server retains it only for verified portfolio reads', () => {
