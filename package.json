@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "build:dynamic": "esbuild src/dynamic-client.js --bundle --platform=browser --format=iife --global-name=HandoffDynamicBundle --define:process.env.NODE_ENV='\"production\"' --minify --outfile=public/dynamic-client.js",
-    "build": "npm run build:dynamic",
+    "build:qr": "esbuild src/qr-client.js --bundle --platform=browser --format=iife --global-name=HandoffQr --minify --outfile=public/qr-client.js",
+    "build": "npm run build:dynamic && npm run build:qr",
     "test": "node --test test/*.test.js",
     "release:check": "bash scripts/release-production.sh --check"
   },
@@ -14,6 +15,7 @@
     "@dynamic-labs/sdk-react-core": "^5.10.0",
     "@dynamic-labs/waas-evm": "^5.10.0",
     "@relay-protocol/settlement-sdk": "^0.0.146",
+    "qrcode": "1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "viem": "2.57.4"

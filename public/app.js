@@ -58,6 +58,7 @@ let networks = FALLBACK_SOURCE_NETWORKS.map(item => ({ ...item, ...NETWORK_STYLE
 const PAYMENT_POLL_MS = 3000;
 const PAYMENT_POLL_LIMIT_MS = 20 * 60 * 1000;
 const RECEIPT_TIMEOUT_MS = 3 * 60 * 1000;
+let currentPaymentQr = null;
 
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -186,8 +187,8 @@ async function refreshPortfolio() {
 
 function renderIdentity() {
   const profile = state.auth.profile;
-  const handle = profile ? `@${profile.username}` : 'Sign in to claim your @username';
-  const name = profile?.displayName || 'Sign in to Handoff';
+  const handle = profile ? `@${profile.username}` : 'Get started to claim your @username';
+  const name = profile?.displayName || 'Get started with Handoff';
   const link = profile ? canonicalPaymentUrl(profile.username).replace(/^https?:\/\//, '') : 'Create a simple page for people to pay you.';
   const avatar = initial(profile?.displayName || profile?.username);
 
@@ -195,16 +196,18 @@ function renderIdentity() {
   $('#identityLink').textContent = link;
   $('#identityAvatar').textContent = avatar;
   $('#profileName').textContent = name;
-  $('#profileHandle').textContent = profile ? `${handle} · Ready to get paid.` : 'Sign in with a passkey or email to claim your payment name.';
+  $('#profileHandle').textContent = profile ? `${handle} · Ready to get paid.` : 'Get started with email, then use a passkey for quicker access.';
   $('#profileAvatar').textContent = avatar;
   $('#profileMiniAvatar').textContent = avatar;
-  $('#profileMiniName').textContent = profile ? name : 'Sign in to Handoff';
-  $('#profileMiniHandle').textContent = profile ? handle : 'Claim your payment handle';
-  $('#authButton').innerHTML = state.auth.signedIn ? 'Sign out <span>↗</span>' : 'Sign in <span>↗</span>';
-  $('#sharePageTitle').textContent = profile ? `Share ${handle}` : 'Sign in to create your payment page.';
-  $('#sharePageCopy').textContent = profile ? 'Copy this page and send it to anyone who needs to pay you.' : 'Use a passkey or email to claim your Handoff name.';
+  $('#profileMiniName').textContent = profile ? name : 'Get started with Handoff';
+  $('#profileMiniHandle').textContent = profile ? handle : 'Create your payment name';
+  $('#authButton').innerHTML = state.auth.signedIn ? 'Sign out <span>↗</span>' : 'Get started <span>↗</span>';
+  $('#sharePageTitle').textContent = profile ? `Share ${handle}` : 'Get started to create your payment page.';
+  $('#sharePageCopy').textContent = profile ? 'Copy or show this page to anyone who needs to pay you.' : 'New here? Start with email, then set up a passkey.';
   $('#sharePageLink').textContent = profile ? canonicalPaymentUrl(profile.username).replace(/^https?:\/\//, '') : '—';
   $('#sharePaidPage').disabled = !profile;
+  $('#showPaymentQr').disabled = !profile;
+  if (!profile) currentPaymentQr = null;
   renderBalance();
 
   $('#aliasList').innerHTML = profile
@@ -947,6 +950,55 @@ function openAuthFlow() {
   openModal('authModal');
 }
 
+function paymentQrUrl() {
+  const username = state.auth.profile?.username;
+  return username ? canonicalPaymentUrl(username) : null;
+}
+
+async function openPaymentQr() {
+  const url = paymentQrUrl();
+  if (!url) return openAuthFlow();
+  const profile = state.auth.profile;
+  $('#qrHandle').textContent = `@${profile.username}`;
+  $('#qrPaymentUrl').textContent = url.replace(/^https?:\/\//, '');
+  $('#qrPaymentStatus').textContent = '';
+  $('#paymentQrImage').hidden = true;
+  $('#paymentQrImage').removeAttribute('src');
+  $('#paymentQrLoading').hidden = false;
+  openModal('qrModal');
+
+  try {
+    if (!window.HandoffQr?.paymentPageDataUrl) throw new Error('QR code generator unavailable.');
+    const dataUrl = await window.HandoffQr.paymentPageDataUrl(url);
+    // A profile can change while the browser is producing the local image. Never reuse a stale QR.
+    if (url !== paymentQrUrl()) return;
+    currentPaymentQr = { dataUrl, url, username: profile.username };
+    $('#paymentQrImage').src = dataUrl;
+    $('#paymentQrImage').hidden = false;
+    $('#paymentQrLoading').hidden = true;
+  } catch (error) {
+    console.warn('Handoff: QR code could not be created.', error);
+    currentPaymentQr = null;
+    $('#paymentQrLoading').hidden = true;
+    $('#qrPaymentStatus').textContent = 'We could not create your QR code. Try again in a moment.';
+  }
+}
+
+function copyPaymentQrLink() {
+  const url = currentPaymentQr?.url || paymentQrUrl();
+  if (!url) return openAuthFlow();
+  copyText(url, 'Payment page copied');
+}
+
+function downloadPaymentQr() {
+  if (!currentPaymentQr?.dataUrl || !currentPaymentQr?.username) return toast('Create your QR code first.');
+  const link = document.createElement('a');
+  link.href = currentPaymentQr.dataUrl;
+  link.download = `handoff-${currentPaymentQr.username}-payment-qr.png`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
 
 async function initialiseDynamic() {
   try {
@@ -1015,6 +1067,9 @@ function bindEvents() {
   $('#requestFromBalance').addEventListener('click', sharePaymentPage);
   $('#createRequest').addEventListener('click', sharePaymentPage);
   $('#sharePaidPage').addEventListener('click', sharePaymentPage);
+  $('#showPaymentQr').addEventListener('click', openPaymentQr);
+  $('#copyPaymentQrLink').addEventListener('click', copyPaymentQrLink);
+  $('#downloadPaymentQr').addEventListener('click', downloadPaymentQr);
   // The sender flow is reachable from public /@username pages. Keep this legacy trigger inert and
   // hidden in the recipient dashboard so it never adds crypto language or choices there.
   $('#sendFromBalance').addEventListener('click', openPay);
