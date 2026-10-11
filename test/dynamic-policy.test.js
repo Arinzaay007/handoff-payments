@@ -30,6 +30,18 @@ test('settings use connect-and-sign so Dynamic issues a verified-credential JWT'
   assert.equal(settings.debugError, false);
 });
 
+test('hosted recipient auth is passkey-first with email OTP only as its fallback', () => {
+  const settings = buildDynamicSettings({ environmentId: 'env-1', connectors: [() => []] });
+  assert.deepEqual(settings.overrides.views, [{
+    type: 'login',
+    sections: [
+      { type: 'passkey' },
+      { type: 'separator', label: 'or' },
+      { type: 'email' }
+    ]
+  }]);
+});
+
 test('only embedded EVM credentials can name a recipient', () => {
   assert.equal(isEmbeddedEvmCredential(EMBEDDED_EVM), true);
   assert.equal(isEmbeddedEvmCredential({ ...EMBEDDED_EVM, chain: 'eip155' }), true);

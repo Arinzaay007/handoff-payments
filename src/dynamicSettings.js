@@ -15,6 +15,18 @@
 
 const NO_SOCIAL_PROVIDERS = () => [];
 
+// Dynamic's default login recipe places email before passkey. Supply a narrowly scoped SDK
+// view override so recipients see passkey first and can deliberately choose email OTP below it.
+// Provider availability remains enforced by the Dynamic environment configuration.
+const PASSKEY_FIRST_LOGIN_VIEW = Object.freeze({
+  type: 'login',
+  sections: Object.freeze([
+    Object.freeze({ type: 'passkey' }),
+    Object.freeze({ type: 'separator', label: 'or' }),
+    Object.freeze({ type: 'email' })
+  ])
+});
+
 function buildDynamicSettings({ environmentId, connectors }) {
   if (typeof environmentId !== 'string' || !environmentId.trim()) {
     throw new Error('Dynamic environment ID is required.');
@@ -28,6 +40,9 @@ function buildDynamicSettings({ environmentId, connectors }) {
     walletConnectors: connectors,
     initialAuthenticationMode: 'connect-and-sign',
     socialProvidersFilter: NO_SOCIAL_PROVIDERS,
+    overrides: {
+      views: [PASSKEY_FIRST_LOGIN_VIEW]
+    },
     logLevel: 'ERROR',
     // Keep Dynamic's own error text out of the UI; the app shows friendly copy instead.
     debugError: false
