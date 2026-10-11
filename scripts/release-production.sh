@@ -9,8 +9,9 @@
 #   bash scripts/release-production.sh --release
 #
 # --check validates the clean branch and runs the build/test gate. --release additionally pushes
-# the release branch, applies Supabase migrations through the official CLI, merges its PR to main,
-# starts a Render deploy, waits for it to become live, and checks /api/config.
+# the release branch, applies Supabase migrations through the official CLI (or performs an explicit
+# guarded skip for a migration already verified as manually applied), merges its PR to main, starts
+# a Render deploy, waits for it to become live, and checks /api/config.
 set -Eeuo pipefail
 
 BRANCH="arena/exact-output-merchant-settlement"
@@ -45,6 +46,10 @@ No remote actions were taken.
 Before --release, securely inject these values into the execution environment:
   GH_TOKEN                 Fine-grained GitHub token: contents + pull-request write access
   SUPABASE_DB_URL          Direct Postgres connection string for the production project
+                          (not needed only with the guarded manual-migration skip below)
+  SUPABASE_MIGRATIONS_ALREADY_APPLIED=yes
+                          Only after the production schema has been manually verified as current
+                          and Supabase CLI migration history has not yet been reconciled
   RENDER_API_KEY           Render API key with deployment access
   RENDER_SERVICE_ID        Render web-service ID for handoff-payments
   HANDOFF_PUBLIC_URL       Canonical deployed URL, e.g. https://payments.example.com
@@ -53,12 +58,16 @@ Before --release, securely inject these values into the execution environment:
 DYNAMIC_RECIPIENT_AUTH_VERIFIED may only be set after a human verifies in the live Dynamic
 Dashboard that passkey is first, email OTP is the only fallback, and phone/SMS/WhatsApp/social/
 external-wallet/key-management paths are disabled for recipients.
+
+SUPABASE_MIGRATIONS_ALREADY_APPLIED=yes is an explicit one-release escape hatch for a production
+schema that was manually applied and verified but is absent from Supabase CLI migration history.
+It skips db push; it does not claim to reconcile migration history. Do not set it without that
+verification.
 EOF
   exit 0
 fi
 
 need GH_TOKEN
-need SUPABASE_DB_URL
 need RENDER_API_KEY
 need RENDER_SERVICE_ID
 need HANDOFF_PUBLIC_URL
@@ -84,10 +93,16 @@ if [[ -z "$PR_NUMBER" ]]; then
 fi
 [[ -n "$PR_NUMBER" ]] || fail "Could not locate the release pull request."
 
-echo "==> Applying tracked Supabase migrations before application deployment"
-# The Supabase CLI tracks remote migration history. It refuses unsafe divergence instead of
-# blindly replaying SQL; resolve any reported history mismatch in the dashboard before continuing.
-npx --yes supabase db push --db-url "$SUPABASE_DB_URL"
+if [[ "${SUPABASE_MIGRATIONS_ALREADY_APPLIED:-}" == "yes" ]]; then
+  echo "==> Skipping Supabase CLI migration push: manually applied production schema was explicitly verified"
+  echo "    Reconcile Supabase CLI migration history before the next automated migration release."
+else
+  need SUPABASE_DB_URL
+  echo "==> Applying tracked Supabase migrations before application deployment"
+  # The Supabase CLI tracks remote migration history. It refuses unsafe divergence instead of
+  # blindly replaying SQL; resolve any reported history mismatch in the dashboard before continuing.
+  npx --yes supabase db push --db-url "$SUPABASE_DB_URL"
+fi
 
 echo "==> Merging PR #$PR_NUMBER to $BASE_BRANCH"
 gh pr merge "$PR_NUMBER" --merge --delete-branch=false
