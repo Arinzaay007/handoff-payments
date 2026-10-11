@@ -163,6 +163,14 @@ globalThis.fetch = async (input, init = {}) => {
         chain_id: 143
       }]);
     }
+    if ((init.method || 'GET') === 'PATCH' && path.startsWith('profiles?') && path.includes('auth_subject=eq.dynamic-user-test-1')) {
+      return json([{
+        id: '11111111-1111-4111-8111-111111111111',
+        username: 'ada_01',
+        display_name: body.display_name,
+        avatar_url: null
+      }]);
+    }
     // Fixture profiles for the public payment page tests. The sensitive fields below exist in the
     // mock rows on purpose: the server must never copy them into any public response.
     if (path.startsWith('profiles?') && path.includes('auth_subject=eq.dynamic-subject-secret-morgan')) {

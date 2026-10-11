@@ -39,6 +39,18 @@ async function claim(body, token) {
   return { status: response.status, text, json: safeJson(text) };
 }
 
+async function updateProfile(body, token) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(`${server.baseUrl}/api/me/profile`, {
+    method: 'PATCH',
+    headers,
+    body: typeof body === 'string' ? body : JSON.stringify(body)
+  });
+  const text = await response.text();
+  return { status: response.status, text, json: safeJson(text) };
+}
+
 function safeJson(text) {
   try { return JSON.parse(text); } catch { return null; }
 }
@@ -66,6 +78,33 @@ test('server rejects a client-supplied walletAddress and never calls the databas
   assert.equal(result.status, 400);
   assert.match(result.json.message, /Only a Handoff username/);
   assert.equal(rpcCalls(server.outboundLog()).length, before);
+});
+
+test('a signed-in recipient can update only their own display name, never their payment identity', async () => {
+  const before = server.outboundLog().filter(entry => entry.kind === 'supabase' && entry.method === 'PATCH').length;
+  const result = await updateProfile({ displayName: '  Ada’s Kitchen   ' }, tokenFor());
+
+  assert.equal(result.status, 200);
+  assert.equal(result.json.profile.username, 'ada_01');
+  assert.equal(result.json.profile.displayName, 'Ada’s Kitchen');
+  assert.equal(Object.hasOwn(result.json.profile, 'wallet'), false);
+
+  const calls = server.outboundLog().filter(entry => entry.kind === 'supabase' && entry.method === 'PATCH');
+  assert.equal(calls.length, before + 1);
+  const sent = calls[calls.length - 1];
+  assert.match(sent.path, /auth_subject=eq\.dynamic-user-test-1/);
+  assert.deepEqual(sent.body, { display_name: 'Ada’s Kitchen' });
+  assert.equal(/wallet|address/i.test(JSON.stringify(sent.body)), false);
+});
+
+test('profile edits reject extra fields, invalid names, and requests without a verified session', async () => {
+  const before = server.outboundLog().filter(entry => entry.kind === 'supabase' && entry.method === 'PATCH').length;
+  assert.equal((await updateProfile({ displayName: 'Ada', username: 'takeover' }, tokenFor())).status, 400);
+  const invalid = await updateProfile({ displayName: 'Ada\nKitchen' }, tokenFor());
+  assert.equal(invalid.status, 400);
+  assert.match(invalid.json.message, /single-line/i);
+  assert.equal((await updateProfile({ displayName: 'Ada' })).status, 401);
+  assert.equal(server.outboundLog().filter(entry => entry.kind === 'supabase' && entry.method === 'PATCH').length, before);
 });
 
 test('server rejects walletAddress even when it matches the verified embedded wallet', async () => {

@@ -134,3 +134,15 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 @media (max-width: 1050px) { .sidebar { width: 214px; }.main-content { padding-right: 28px; padding-left: 28px; }.signal-strip { margin-right: -28px; margin-left: -28px; padding-right: 28px; padding-left: 28px; }.balance-grid { grid-template-columns: 1.15fr .85fr; }.content-split { grid-template-columns: 1fr; }.identity-layout { grid-template-columns: .78fr 1.22fr; } }
 @media (max-width: 780px) { .sidebar { position: fixed; width: 260px; transform: translateX(-105%); box-shadow: 12px 0 40px rgba(30,34,25,.15); transition: .22s ease; }.sidebar.open { transform: translateX(0); }.main-content { width: 100%; padding: 0 16px 38px; }.signal-strip { justify-content: flex-start; margin-right: -16px; margin-left: -16px; padding-right: 16px; padding-left: 16px; overflow: hidden; white-space: nowrap; }.topbar { min-height: 99px; gap: 12px; }.mobile-menu { display: grid; flex: none; }.crumb h1 { font-size: 27px; }.top-actions .icon-button, .top-actions #quickRequest { display: none; }.balance-grid, .content-split, .identity-layout { grid-template-columns: 1fr; }.balance-card, .identity-card { min-height: 255px; }.wide-intro { padding-top: 9px; }.share-page-card { padding: 25px; }.share-page-card h2 { font-size: 28px; }.activity-panel, .aliases-panel { padding: 20px; }.modal { padding: 24px; }.network-picker { grid-template-columns: 1fr 1fr; }body.public-mode .public-page { align-items: flex-start; padding-top: 105px; }body.public-mode .public-page:before { left: 21px; } }
 @media (max-width: 450px) { .top-actions .button { padding: 0 12px; }.balance-card, .identity-card { padding: 23px; border-radius: 22px; }.balance-amount { font-size: 57px; }.balance-actions { flex-wrap: wrap; }.identity-top h2 { font-size: 23px; }.request-panel { padding: 21px; }.modal h2 { font-size: 26px; }.share-page-actions .button, .qr-payment-actions .button { width: 100%; }.qr-image-frame { width: 218px; height: 218px; }.network-picker { grid-template-columns: 1fr; } }
+
+/* Trusted payment profile */
+.profile-preview-label { margin: 4px 0 8px; color: #78816d; }
+.profile-card .profile-preview-copy { max-width: 260px; margin: 8px auto 18px; color: #7d8279; font-size: 10px; }
+.profile-actions { display: grid; grid-template-columns: 1.05fr .95fr; gap: 8px; }
+.profile-actions .button { min-width: 0; padding: 0 10px; }
+.profile-editor-modal .modal-description { max-width: 372px; }
+.profile-editor-modal .modal-note { min-height: 15px; }
+
+@media (max-width: 450px) {
+  .profile-actions { grid-template-columns: 1fr; }
+}

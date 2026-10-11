@@ -14,8 +14,11 @@
 # a Render deploy, waits for it to become live, and checks /api/config.
 set -Eeuo pipefail
 
-BRANCH="arena/exact-output-merchant-settlement"
 BASE_BRANCH="main"
+CURRENT_BRANCH="$(git branch --show-current)"
+# A release must come from an explicit working branch, never directly from main. The optional
+# variable makes CI reproducible while preserving a fail-closed match to the checked-out branch.
+BRANCH="${HANDOFF_RELEASE_BRANCH:-$CURRENT_BRANCH}"
 MODE="${1:---check}"
 
 if [[ "$MODE" != "--check" && "$MODE" != "--release" ]]; then
@@ -26,7 +29,10 @@ fi
 fail() { echo "Release stopped: $*" >&2; exit 1; }
 need() { [[ -n "${!1:-}" ]] || fail "Missing required secret/configuration: $1"; }
 
-[[ "$(git branch --show-current)" == "$BRANCH" ]] || fail "Check out $BRANCH before releasing."
+[[ -n "$CURRENT_BRANCH" ]] || fail "A named release branch is required; detached HEAD is not allowed."
+[[ "$CURRENT_BRANCH" == "$BRANCH" ]] || fail "Check out $BRANCH before releasing."
+[[ "$BRANCH" != "$BASE_BRANCH" ]] || fail "Releases must start from a review branch, not $BASE_BRANCH."
+[[ "$BRANCH" == arena/* ]] || fail "Release branches must use the arena/ prefix."
 git diff --quiet || fail "Working tree has unstaged changes. Commit or discard them first."
 git diff --cached --quiet || fail "Index has staged but uncommitted changes. Commit them first."
 
@@ -87,8 +93,8 @@ echo "==> Creating or reusing pull request"
 PR_NUMBER="$(gh pr list --head "$BRANCH" --base "$BASE_BRANCH" --state open --json number --jq '.[0].number // empty')"
 if [[ -z "$PR_NUMBER" ]]; then
   gh pr create --base "$BASE_BRANCH" --head "$BRANCH" \
-    --title "Release exact-output and invisible-recipient experience" \
-    --body "Deploy Relay exact-output settlement and passkey-first, no-crypto recipient UX." >/dev/null
+    --title "Release Handoff updates" \
+    --body "Deploy the reviewed Handoff release after the local build and test gate passes." >/dev/null
   PR_NUMBER="$(gh pr list --head "$BRANCH" --base "$BASE_BRANCH" --state open --json number --jq '.[0].number // empty')"
 fi
 [[ -n "$PR_NUMBER" ]] || fail "Could not locate the release pull request."
