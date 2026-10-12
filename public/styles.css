@@ -706,3 +706,67 @@ img, svg, canvas { max-width: 100%; }
   .handle-box span { max-width: 88px; }
   .share-page-card, .activity-panel, .aliases-panel { padding: 17px; }
 }
+
+/* Dense mobile scale: mobile is a focused payment surface, not a shrunken desktop. */
+@media (max-width: 780px) {
+  .main-content { padding-right: 14px; padding-bottom: calc(92px + env(safe-area-inset-bottom)); padding-left: 14px; }
+  .signal-strip { height: 27px; margin-right: -14px; margin-left: -14px; padding-right: 14px; padding-left: 14px; }
+  .topbar { min-height: 76px; gap: 8px; }
+  .crumb #pageEyebrow { font-size: 7px; }
+  .crumb h1 { margin-top: 4px; font-size: clamp(23px, 7.2vw, 29px); }
+  .top-actions #authButton, .mobile-menu { width: 40px; min-width: 40px; height: 40px; }
+
+  .balance-grid, .content-split, .identity-layout { gap: 12px; }
+  .balance-card { min-height: 252px; padding: 19px; border-radius: 22px; }
+  .balance-card:before { inset: 9px; border-radius: 16px; }
+  .balance-head { font-size: 10px; }
+  .balance-amount { margin-top: 23px; font-size: clamp(47px, 14.5vw, 62px); }
+  .balance-sub { margin-top: 9px; font-size: 10px; }
+  .balance-actions { gap: 7px; margin-top: 16px; }
+  .balance-actions .button { min-height: 44px; padding: 0 8px; font-size: 10px; }
+  .identity-card { min-height: 218px; padding: 20px; border-radius: 22px; }
+  .identity-top h2 { font-size: 23px; }
+  .circle-arrow { width: 35px; height: 35px; }
+  .handle-box { margin-top: 24px; padding: 9px; }
+  .handle-avatar { width: 31px; height: 31px; }
+
+  .content-split { margin-top: 12px; }
+  .panel { border-radius: 18px; }
+  .activity-panel, .aliases-panel { padding: 17px; }
+  .panel-head h2 { font-size: 19px; }
+  .activity-item { min-height: 56px; padding: 9px 0; }
+  .request-panel { min-height: 245px; padding: 20px; }
+  .request-panel h2 { font-size: 23px; }
+  .request-panel p { margin: 8px 0 15px; font-size: 11px; }
+
+  .wide-intro { padding-bottom: 18px; }
+  .wide-intro h2 { font-size: clamp(28px, 8.8vw, 37px); }
+  .wide-intro p { font-size: 12px; }
+  .share-page-card { padding: 21px 18px; }
+  .share-page-card h2 { font-size: 27px; }
+
+  .mobile-bottom-nav { right: 8px; bottom: calc(7px + env(safe-area-inset-bottom)); left: 8px; min-height: 60px; padding: 4px; border-radius: 20px; }
+  .mobile-nav-item { min-height: 50px; border-radius: 15px; }
+  .mobile-nav-item span { font-size: 17px; }
+  .mobile-nav-item b { font-size: 8px; }
+
+  .modal { max-height: min(78dvh, 680px); padding: 23px 18px calc(17px + env(safe-area-inset-bottom)); border-radius: 24px 24px 0 0; }
+  .modal:before { width: 32px; margin: -10px auto 14px; }
+  .modal-close { top: 12px; right: 13px; width: 34px; height: 34px; }
+  .modal h2 { font-size: clamp(24px, 7.3vw, 29px); }
+  .modal label { margin: 12px 0; }
+  .modal input, .withdraw-demo-modal select { height: 45px; }
+  .amount-input { height: 55px; }
+  .amount-input input { font-size: 26px; }
+  .network-option { min-height: 54px; padding: 8px; }
+}
+
+@media (max-width: 360px) {
+  .main-content { padding-right: 11px; padding-left: 11px; }
+  .signal-strip { margin-right: -11px; margin-left: -11px; padding-right: 11px; padding-left: 11px; }
+  .topbar { min-height: 70px; }
+  .balance-card { min-height: 242px; padding: 17px; }
+  .balance-amount { margin-top: 20px; font-size: clamp(44px, 14.2vw, 52px); }
+  .identity-card { min-height: 207px; padding: 17px; }
+  .request-panel { min-height: 230px; padding: 17px; }
+}
