@@ -44,7 +44,7 @@
       <section class="page active" id="overviewPage">
         <section class="balance-grid">
           <article class="balance-card">
-            <div class="balance-head"><span>Available balance</span><button class="eye-button" aria-label="Toggle balance visibility" id="toggleBalance">◉</button></div>
+            <div class="balance-head"><span>Available balance</span><div class="balance-tools"><label class="currency-picker"><span class="sr-only">Display currency</span><select id="displayCurrency" aria-label="Display currency"><option value="USD">USD</option><option value="NGN">NGN</option><option value="GBP">GBP</option><option value="INR">INR</option></select></label><button class="eye-button" aria-label="Toggle balance visibility" id="toggleBalance">◉</button></div></div>
             <div class="balance-amount" id="balanceAmount">—</div>
             <div class="balance-sub" id="balanceSub"><span class="stable-dot">$</span> Get started to view your confirmed balance</div>
             <div class="balance-actions"><button class="button button-light" id="requestFromBalance"><span class="button-symbol">↗</span> Share payment page</button><button class="button button-quiet" id="withdrawFromBalance">Withdraw to bank <span class="demo-pill">Preview</span></button><button class="button button-send" id="sendFromBalance">Send money <span>→</span></button></div>

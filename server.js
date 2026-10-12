@@ -13,6 +13,7 @@ const relay = require('./src/relayClient');
 const payments = require('./src/paymentService');
 const { formatUsdc } = require('./src/paymentPolicy');
 const handoffTransfers = require('./src/handoffTransferService');
+const { getDisplayRates } = require('./src/displayRates');
 
 const root = path.join(__dirname, 'public');
 const PAYMENT_PAGE_PATH = /^\/@([^/]+)\/?$/;
@@ -172,6 +173,16 @@ const server = http.createServer(async (req, res) => {
         caps: publicCaps()
       }
     }));
+  }
+
+  // Reference exchange rates support display preferences only. They never affect a payment,
+  // balance, quote, authorization, or withdrawal, and the browser falls back to USD on failure.
+  if (req.method === 'GET' && url.pathname === '/api/display-rates') {
+    try {
+      return send(res, 200, JSON.stringify(await getDisplayRates()));
+    } catch {
+      return send(res, 503, JSON.stringify({ message: 'Exchange display is temporarily unavailable.', code: 'DISPLAY_RATES_UNAVAILABLE' }));
+    }
   }
 
   if (req.method === 'GET' && url.pathname === '/api/me') {
