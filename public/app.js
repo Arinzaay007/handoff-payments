@@ -104,7 +104,9 @@ function closeModals() {
 function goTo(page) {
   $$('.page').forEach(el => el.classList.remove('active'));
   $(`#${page}Page`).classList.add('active');
-  $$('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+  $$('.nav-item, .mobile-nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+  // Bottom navigation is touch-first; close the optional side drawer after a mobile selection.
+  $('.sidebar')?.classList.remove('open');
   const labels = {
     overview: ['PAYMENTS', 'Get paid, simply.'],
     'get-paid': ['GET PAID', 'Share your payment page'],
@@ -1426,7 +1428,7 @@ async function signOut() {
 }
 
 function bindEvents() {
-  $$('.nav-item').forEach(item => item.addEventListener('click', () => goTo(item.dataset.page)));
+  $$('.nav-item, .mobile-nav-item').forEach(item => item.addEventListener('click', () => goTo(item.dataset.page)));
   $$('[data-go]').forEach(item => item.addEventListener('click', () => goTo(item.dataset.go)));
   const sharePaymentPage = () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow();
   $('#quickRequest').addEventListener('click', sharePaymentPage);
