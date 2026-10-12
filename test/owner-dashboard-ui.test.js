@@ -136,6 +136,23 @@ test('mobile navigation mirrors the desktop destinations and keeps the selected 
   assert.equal(doc.querySelector('.nav-item[data-page="get-paid"]').classList.contains('active'), true);
 });
 
+test('the mobile menu has close, outside-tap, and destination-selection return paths', async () => {
+  const { doc } = await loadApp();
+  const sidebar = doc.querySelector('.sidebar');
+  const backdrop = doc.querySelector('#mobileDrawerBackdrop');
+  doc.querySelector('#mobileMenu').click();
+  assert.equal(sidebar.classList.contains('open'), true);
+  assert.equal(backdrop.classList.contains('visible'), true);
+  doc.querySelector('#closeMobileMenu').click();
+  assert.equal(sidebar.classList.contains('open'), false);
+  doc.querySelector('#mobileMenu').click();
+  backdrop.click();
+  assert.equal(sidebar.classList.contains('open'), false);
+  doc.querySelector('#mobileMenu').click();
+  doc.querySelector('.mobile-nav-item[data-page="activity"]').click();
+  assert.equal(sidebar.classList.contains('open'), false);
+});
+
 test('the dashboard shows verified recipient receipt activity, and nothing before submission', async () => {
   const { doc } = await signInWithPortfolio({
     balance: { asset: 'USDC', network: 'Monad', chainId: 143, status: 'available', amount: '1234.56', checkedAt: '2026-10-10T12:00:00.000Z' },

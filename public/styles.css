@@ -613,3 +613,39 @@ body.public-mode .public-card { max-width: 474px; padding: 41px 34px 34px; borde
   .modal h2 { margin: 6px 0; font-size: 27px; }
   .modal-description { margin: 7px 0 12px; }
 }
+
+
+/* Mobile drawer dismissal: a visible close target plus an inert tap-outside layer. */
+.mobile-drawer-close, .mobile-drawer-backdrop { display: none; }
+
+@media (max-width: 780px) {
+  .mobile-drawer-close {
+    position: absolute;
+    top: calc(18px + env(safe-area-inset-top));
+    right: 15px;
+    display: grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 14px;
+    background: rgba(255,255,255,.09);
+    color: #fffaf7;
+    font-size: 27px;
+    line-height: 1;
+  }
+  .mobile-drawer-close:active { background: rgba(255,255,255,.18); }
+  .mobile-drawer-backdrop {
+    position: fixed;
+    z-index: 41;
+    inset: 0;
+    display: block;
+    border: 0;
+    background: rgba(24,22,28,.38);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s ease;
+  }
+  .mobile-drawer-backdrop.visible { opacity: 1; pointer-events: auto; }
+  .sidebar .brand { padding-right: 54px; }
+}
