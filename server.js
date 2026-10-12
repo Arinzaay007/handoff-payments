@@ -12,10 +12,12 @@ const { getRecipientPortfolio } = require('./src/portfolio');
 const relay = require('./src/relayClient');
 const payments = require('./src/paymentService');
 const { formatUsdc } = require('./src/paymentPolicy');
+const handoffTransfers = require('./src/handoffTransferService');
 
 const root = path.join(__dirname, 'public');
 const PAYMENT_PAGE_PATH = /^\/@([^/]+)\/?$/;
 const PAYMENT_ID_PATH = /^\/api\/payments\/([0-9a-fA-F-]{36})(\/awaiting-signature|\/source-transaction)?$/;
+const HANDOFF_TRANSFER_PATH = /^\/api\/handoff-transfers\/([0-9a-fA-F-]{36})(\/authorization)?$/;
 const port = Number(process.env.PORT || 3000);
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -152,9 +154,18 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/api/public-config') {
     // Public and display-safe. The network list is the server's source of truth: Solana and TON are
-    // listed as not available yet, and the browser cannot promote them on its own.
+    // listed as not available yet, and the browser cannot promote them on its own. Send-money
+    // availability is true only after a server-side Monad check confirms the relayer's MON reserve.
+    let handoffTransferAvailability = false;
+    try {
+      handoffTransferAvailability = Boolean((await handoffTransfers.getAvailability()).available);
+    } catch {
+      handoffTransferAvailability = false;
+    }
+    const runtime = publicRuntimeConfig();
     return send(res, 200, JSON.stringify({
-      ...publicRuntimeConfig(),
+      ...runtime,
+      handoffTransfers: { ...runtime.handoffTransfers, available: handoffTransferAvailability },
       payments: {
         sourceNetworks: publicSourceNetworks(),
         destination: { chainId: MONAD.chainId, name: MONAD.name, asset: MONAD.asset },
@@ -211,6 +222,48 @@ const server = http.createServer(async (req, res) => {
         return send(res, 404, JSON.stringify({ message: 'Claim your Handoff username first.', code: 'PROFILE_NOT_FOUND' }));
       }
       return send(res, 200, JSON.stringify(await getRecipientPortfolio(profile)));
+    } catch (error) {
+      return sendError(res, error);
+    }
+  }
+
+  // Handoff-to-Handoff transfer intent. The signed-in sender supplies only another canonical
+  // username and an amount; both embedded accounts, the nonce, and the exact typed message are
+  // resolved server-side. The route stays closed until a securely injected, funded relayer exists.
+  if (req.method === 'POST' && url.pathname === '/api/handoff-transfers/intent') {
+    try {
+      const user = await requireDynamicUser(req.headers.authorization);
+      const body = await readJson(req);
+      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'recipientHandle' && key !== 'amount')) {
+        return send(res, 400, JSON.stringify({ message: 'Send only a Handoff username and amount.', code: 'FIELD_NOT_ALLOWED' }));
+      }
+      const intent = await handoffTransfers.createTransferIntent({
+        user,
+        recipientHandle: body.recipientHandle,
+        amount: body.amount
+      });
+      return send(res, 201, JSON.stringify(intent));
+    } catch (error) {
+      return sendError(res, error);
+    }
+  }
+
+  const handoffTransferMatch = url.pathname.match(HANDOFF_TRANSFER_PATH);
+  if (handoffTransferMatch) {
+    const [, transferId, action] = handoffTransferMatch;
+    try {
+      const user = await requireDynamicUser(req.headers.authorization);
+      if (req.method === 'GET' && !action) {
+        return send(res, 200, JSON.stringify(await handoffTransfers.getTransferStatus({ user, transferId })));
+      }
+      if (req.method === 'POST' && action === '/authorization') {
+        const body = await readJson(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1 || typeof body.signature !== 'string') {
+          return send(res, 400, JSON.stringify({ message: 'Send only your transfer confirmation.', code: 'FIELD_NOT_ALLOWED' }));
+        }
+        return send(res, 200, JSON.stringify(await handoffTransfers.submitTransferAuthorization({ user, transferId, signature: body.signature })));
+      }
+      return send(res, 405, 'Method not allowed', 'text/plain; charset=utf-8');
     } catch (error) {
       return sendError(res, error);
     }

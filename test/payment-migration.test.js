@@ -1,6 +1,6 @@
-// Runs migrations 0001 → 0004 in an in-memory Postgres (PGlite) and proves the database-level payment
-// guards: the per-payment and rolling daily caps, the receipt guard trigger, integrity constraints,
-// and the revoked grants on the reservation function. Migrations are never applied to Supabase here.
+// Runs migrations 0001 → 0005 in an in-memory Postgres (PGlite) and proves the database-level payment
+// guards, including Handoff-to-Handoff one-time transfer reservation. Migrations are never applied
+// to Supabase here.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -9,7 +9,7 @@ const { PGlite } = require('@electric-sql/pglite');
 const { pgcrypto } = require('@electric-sql/pglite/contrib/pgcrypto');
 
 const ROOT = path.join(__dirname, '..');
-const MIGRATIONS = ['0001_handoff_mainnet_schema.sql', '0002_claim_handoff_profile.sql', '0003_payment_execution_guards.sql', '0004_exact_output_merchant_settlement.sql'];
+const MIGRATIONS = ['0001_handoff_mainnet_schema.sql', '0002_claim_handoff_profile.sql', '0003_payment_execution_guards.sql', '0004_exact_output_merchant_settlement.sql', '0005_handoff_to_handoff_transfers.sql'];
 const USDC_BASE = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const HASH = n => `0x${n.toString(16).padStart(64, '0')}`;
 const PAYER = n => `0x${n.toString(16).padStart(40, '0')}`;
@@ -18,6 +18,8 @@ const USDC = 1_000_000n;
 let db;
 let profileId;
 let walletId;
+let recipientProfileId;
+let recipientWalletId;
 let seq = 0;
 
 async function q(sql, params = []) {
@@ -92,17 +94,53 @@ test.before(async () => {
     [profileId, '0x7777777777777777777777777777777777777777']
   );
   walletId = wallet.id;
+  const [recipient] = await q(
+    `insert into public.profiles (auth_subject, username, username_normalized, display_name)
+     values ('subject-2', 'ada', 'ada', 'Ada') returning id`
+  );
+  recipientProfileId = recipient.id;
+  const [recipientWallet] = await q(
+    `insert into public.recipient_wallets (profile_id, wallet_address) values ($1, $2) returning id`,
+    [recipientProfileId, '0x8888888888888888888888888888888888888888']
+  );
+  recipientWalletId = recipientWallet.id;
 });
 
 test.after(async () => {
   await db?.close();
 });
 
-test('migrations 0001 → 0004 apply in order and attach the exact-output guard trigger', async () => {
+test('migrations 0001 → 0005 apply in order and attach the payment guard trigger', async () => {
   const [trigger] = await q(`select tgname from pg_trigger where tgname = 'payment_attempts_guard_update'`);
   assert.equal(trigger?.tgname, 'payment_attempts_guard_update');
   const [fn] = await q(`select proname from pg_proc where proname = 'reserve_payment_attempt'`);
   assert.equal(fn?.proname, 'reserve_payment_attempt');
+});
+
+test('Handoff transfer migration creates the guarded one-time authorization lifecycle', async () => {
+  const nonce = HASH(9001);
+  const now = Math.floor(Date.now() / 1000);
+  const [created] = await q(
+    `select * from public.reserve_handoff_transfer($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    [
+      profileId, walletId, '0x7777777777777777777777777777777777777777',
+      recipientProfileId, recipientWalletId, '0x8888888888888888888888888888888888888888',
+      String(25n * USDC), nonce, now - 30, now + 300, String(25n * USDC), String(100n * USDC)
+    ]
+  );
+  assert.equal(created.status, 'created');
+  assert.equal(String(created.amount), String(25n * USDC));
+  await expectError(q(`update public.handoff_transfers set amount = 1 where id = $1`, [created.id]), /terms are immutable/);
+
+  const signature = `0x${'11'.repeat(65)}`;
+  const [authorized] = await q(`select * from public.record_handoff_transfer_authorization($1,$2,$3)`, [created.id, profileId, signature]);
+  assert.equal(authorized.status, 'authorized');
+  const txHash = HASH(9002);
+  const [submitted] = await q(`select * from public.record_handoff_transfer_submission($1,$2,$3)`, [created.id, profileId, txHash]);
+  assert.equal(submitted.status, 'submitted');
+  const [settled] = await q(`select * from public.settle_handoff_transfer($1,$2)`, [created.id, txHash]);
+  assert.equal(settled.status, 'settled');
+  await expectError(q(`update public.handoff_transfers set status = 'created' where id = $1`, [created.id]), /already final/);
 });
 
 test('the 25 USDC per-payment cap is enforced by the reservation function', async () => {

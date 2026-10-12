@@ -18,7 +18,9 @@ function publicProfileResponse(profile) {
 // from an HTTP endpoint; use publicProfileResponse() at the boundary.
 function profileWithWallet(profile, wallet) {
   if (!profile || !wallet) return null;
-  return { ...publicProfileResponse(profile), wallet: wallet.wallet_address };
+  // This is server-internal. HTTP responses must pass through publicProfileResponse() and never
+  // expose either the embedded account address or its wallet-row identifier.
+  return { ...publicProfileResponse(profile), wallet: wallet.wallet_address, walletId: wallet.id || null };
 }
 
 async function getProfileForSubject(subject) {
@@ -28,7 +30,7 @@ async function getProfileForSubject(subject) {
   const profile = profiles?.[0];
   if (!profile) return null;
   const wallets = await request(
-    `recipient_wallets?select=wallet_address,chain_id&profile_id=eq.${encodeURIComponent(profile.id)}&is_active=is.true&chain_id=eq.143&limit=1`
+    `recipient_wallets?select=id,wallet_address,chain_id&profile_id=eq.${encodeURIComponent(profile.id)}&is_active=is.true&chain_id=eq.143&limit=1`
   );
   return profileWithWallet(profile, wallets?.[0]);
 }

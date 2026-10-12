@@ -3,6 +3,9 @@
 // contain an ERC-20 Transfer of the Monad USDC contract to the server-resolved recipient for the
 // exact requested amount. A shortfall or surplus is not recorded as a completed exact payment.
 
+const { decodeFunctionData } = require('viem');
+const { TRANSFER_WITH_AUTHORIZATION_ABI } = require('./handoffRelayer');
+
 const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const HASH_RE = /^0x[0-9a-fA-F]{64}$/;
 const RPC_TIMEOUT_MS = 10000;
@@ -28,6 +31,35 @@ async function rpcCall(rpcUrl, method, params, fetchImpl = fetch) {
 
 function topicAddress(topic) {
   return typeof topic === 'string' && /^0x0{24}[0-9a-fA-F]{40}$/.test(topic) ? `0x${topic.slice(-40)}`.toLowerCase() : null;
+}
+
+// A receipt alone proves an exact USDC transfer, but the server also checks the submitted
+// transaction's calldata before it can call that receipt a Handoff-sponsored authorization. This
+// binds the recorded hash to the same sender, recipient, amount, window, and nonce the server
+// recovered from Dynamic's typed signature.
+async function verifyMonadAuthorizationSubmission({ txHash, authorization, relayerAddress, monadUsdc, rpcUrl, fetchImpl = fetch }) {
+  if (!HASH_RE.test(String(txHash || ''))) return { verified: false, reason: 'INVALID_HASH' };
+  const txCall = await rpcCall(rpcUrl, 'eth_getTransactionByHash', [txHash], fetchImpl);
+  if (!txCall.ok) return { verified: false, reason: 'RPC_UNAVAILABLE' };
+  const transaction = txCall.result;
+  if (!transaction) return { verified: false, reason: 'TRANSACTION_PENDING' };
+  if (String(transaction.to || '').toLowerCase() !== String(monadUsdc || '').toLowerCase()) return { verified: false, reason: 'WRONG_CONTRACT' };
+  if (relayerAddress && String(transaction.from || '').toLowerCase() !== String(relayerAddress).toLowerCase()) return { verified: false, reason: 'WRONG_RELAYER' };
+  let decoded;
+  try {
+    decoded = decodeFunctionData({ abi: TRANSFER_WITH_AUTHORIZATION_ABI, data: transaction.input || transaction.data || '0x' });
+  } catch {
+    return { verified: false, reason: 'INVALID_CALLDATA' };
+  }
+  if (decoded.functionName !== 'transferWithAuthorization') return { verified: false, reason: 'INVALID_CALLDATA' };
+  const [from, to, value, validAfter, validBefore, nonce] = decoded.args;
+  const matches = String(from).toLowerCase() === String(authorization.from).toLowerCase()
+    && String(to).toLowerCase() === String(authorization.to).toLowerCase()
+    && BigInt(value).toString() === BigInt(authorization.value).toString()
+    && BigInt(validAfter).toString() === BigInt(authorization.validAfter).toString()
+    && BigInt(validBefore).toString() === BigInt(authorization.validBefore).toString()
+    && String(nonce).toLowerCase() === String(authorization.nonce).toLowerCase();
+  return matches ? { verified: true, reason: 'VERIFIED' } : { verified: false, reason: 'AUTHORIZATION_MISMATCH' };
 }
 
 /**
@@ -66,4 +98,4 @@ async function verifyMonadSettlement({ txHash, recipient, requiredMinor, monadUs
   return { verified: true, reason: 'VERIFIED', receivedMinor: received.toString() };
 }
 
-module.exports = { verifyMonadSettlement, TRANSFER_TOPIC, rpcCall };
+module.exports = { verifyMonadSettlement, verifyMonadAuthorizationSubmission, TRANSFER_TOPIC, rpcCall };

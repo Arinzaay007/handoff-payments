@@ -26,7 +26,7 @@ either one.
 
 ## Render
 
-On Render these five variables are declared in [`render.yaml`](../render.yaml)
+On Render these variables are declared in [`render.yaml`](../render.yaml)
 with `sync: false`, so the dashboard prompts for each value. See
 [`docs/RENDER_DEPLOY.md`](RENDER_DEPLOY.md) for the full walkthrough.
 
@@ -37,6 +37,10 @@ with `sync: false`, so the dashboard prompts for each value. See
 | `SUPABASE_SECRET_KEY` | Render Variables — **server-only secret** |
 | `MAX_MAINNET_USDC_MINOR` | Render Variables (non-secret cap) |
 | `MAX_DAILY_MAINNET_USDC_MINOR` | Render Variables (non-secret cap) |
+| `RELAY_API_KEY` | Render Variables — **server-only secret** |
+| `MONAD_RPC_URL` | Render Variables — server-only RPC endpoint |
+| `HANDOFF_RELAYER_PRIVATE_KEY` | Render Variables — **server-only secret**, only after funding the dedicated Monad relayer |
+| `HANDOFF_RELAYER_MIN_MON_WEI` | Render Variables — optional non-secret minimum MON reserve |
 
 Rotate the previously exposed Supabase key before you paste the replacement.
 Never paste a key into a chat, a commit, or a browser.
@@ -69,6 +73,9 @@ Run these files, in order, in the Supabase SQL Editor:
 2. `supabase/migrations/0002_claim_handoff_profile.sql` — atomic, server-only profile and destination claim.
 3. `supabase/migrations/0003_payment_execution_guards.sql` — payment execution guards and public profile support.
 4. `supabase/migrations/0004_exact_output_merchant_settlement.sql` — exact-output merchant settlement fields and policies.
+5. `supabase/migrations/0005_handoff_to_handoff_transfers.sql` — one-time Handoff transfer intents, immutable lifecycle guards, and server-only RPC functions.
+
+Do not add the transfer relayer secret or turn on Send money until migration `0005` has completed successfully.
 
 ## Deployment checks
 
@@ -78,7 +85,7 @@ Run these files, in order, in the Supabase SQL Editor:
 - `GET /api/me/wallet-status` returns only `{ ready: boolean }` for the verified Dynamic session. It never returns an address.
 - `GET /api/me/portfolio` requires a verified Dynamic access token and is scoped to that user's own recipient profile. It returns the real on-chain Monad USDC balance (chain ID 143 verified, ERC-20 `balanceOf` on Monad USDC) with `status: "available" | "unavailable"` — never a database total and never a fake zero — plus receipt activity shown only after the source transaction was submitted. It never returns a payer address, key material, or a recipient wallet. There is no endpoint that exports or accepts a key.
 - `POST /api/me/claim` accepts only `{ "username" }`. It requires a verified Dynamic passkey/email session with exactly one embedded EVM credential. The browser never submits or receives a recipient address.
-- `GET /api/public/resolve?handle=ada` resolves only a registered Handoff username to its single active Monad recipient wallet.
+- `GET /api/public/resolve?handle=ada` resolves only a registered Handoff username to a display-safe public profile. The active Monad recipient account is resolved server-side for payment execution and is never returned.
 - `GET /@ada` serves the public payment page for a registered username. The page URL is derived from the request origin, so the same build works on any host. Unknown or unfunded handles get a not-found page with `noindex`.
 - `GET /api/public/profile?handle=ada` returns only `username`, `displayName`, and `settlement`. It never returns a wallet address, a Dynamic subject, or an email.
 
@@ -97,8 +104,22 @@ Run these files, in order, in the Supabase SQL Editor:
 | `MONAD_RPC_URL` | Server only, optional | Monad JSON-RPC used to verify USDC settlement and to read the owner's verified Monad USDC balance. Default `https://rpc.monad.xyz` (chain 143). When it cannot be read, the dashboard shows "syncing/unavailable", never a fake zero. |
 | `MAX_MAINNET_USDC_MINOR` | Server | Per-payment cap. Default and ceiling `25000000` (25 USDC). Lower values are honoured; higher values are clamped. |
 | `MAX_DAILY_MAINNET_USDC_MINOR` | Server | Rolling 24-hour cap per payer. Default and ceiling `100000000` (100 USDC). |
+| `HANDOFF_RELAYER_PRIVATE_KEY` | **Server-only secret** | A dedicated Monad relayer account for Handoff-to-Handoff transfers. Add it only after it is funded with MON; it is never returned by an API or added to browser code. |
+| `HANDOFF_RELAYER_MIN_MON_WEI` | Server, optional | Minimum relayer operating reserve. Default/floor `50000000000000000` wei (0.05 MON). A higher value is allowed; a lower value is ignored. |
 
-Never place `RELAY_API_KEY` or any Supabase key in a browser-visible file, `render.yaml`, or Git.
+Never place `RELAY_API_KEY`, `HANDOFF_RELAYER_PRIVATE_KEY`, or any Supabase key in a browser-visible file, `render.yaml`, or Git.
+
+## Handoff-to-Handoff Send money
+
+This capability is deliberately **closed by default**. It opens only when all of the following are true:
+
+1. Migration `0005_handoff_to_handoff_transfers.sql` is applied.
+2. `HANDOFF_RELAYER_PRIVATE_KEY` is securely injected on the server — never into a browser, repository, or chat.
+3. The relayer has at least the configured MON operating reserve (0.05 MON by default) on Monad. `GET /api/public-config` performs a server-side chain and balance check; a syntactically valid but unfunded key does **not** make Send money available.
+
+When ready, a signed-in Handoff owner enters only an active `@username` and exact USDC amount. The server resolves both embedded accounts, reserves a short-lived nonce-bound EIP-3009 `transferWithAuthorization` intent, and returns that exact typed message to Dynamic for signing. The server recovers the signer against the authenticated sender, submits only the verified authorization through its dedicated relayer, and records completion only after an exact Monad-USDC receipt. No standing allowance is created, and recipient UI never displays an account address or asks the sender to acquire a network token.
+
+The relayer pays the Monad network fee; the sender’s USDC transfer amount is exact. Launch limits are 25 USDC per transfer and 100 USDC rolling 24 hours per sender profile. If the relayer reserve becomes unavailable, the feature closes again before a new authorization is requested.
 
 ## Exact-output merchant payments
 

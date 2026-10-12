@@ -45,7 +45,7 @@
             <div class="balance-head"><span>Available balance</span><button class="eye-button" aria-label="Toggle balance visibility" id="toggleBalance">◉</button></div>
             <div class="balance-amount" id="balanceAmount">—</div>
             <div class="balance-sub" id="balanceSub"><span class="stable-dot">$</span> Get started to view your confirmed balance</div>
-            <div class="balance-actions"><button class="button button-light" id="requestFromBalance"><span class="button-symbol">↗</span> Share payment page</button><button class="button button-quiet" id="withdrawFromBalance">Withdraw to bank <span class="demo-pill">Preview</span></button><button id="sendFromBalance" hidden aria-hidden="true" tabindex="-1"></button></div>
+            <div class="balance-actions"><button class="button button-light" id="requestFromBalance"><span class="button-symbol">↗</span> Share payment page</button><button class="button button-quiet" id="withdrawFromBalance">Withdraw to bank <span class="demo-pill">Preview</span></button><button class="button button-send" id="sendFromBalance">Send money <span>→</span></button></div>
             <div class="card-shine"></div>
           </article>
           <article class="identity-card">
@@ -143,6 +143,43 @@
       <h2>Nothing was sent.</h2>
       <p class="modal-description">Bank withdrawals are still in preview while we complete our regulated payout partnership. Your balance and payment page are unchanged.</p>
       <button class="button button-dark full" data-close="withdrawDemoModal">Got it <span>✓</span></button>
+    </div>
+  </section>
+
+  <section class="modal compact-modal handoff-send-modal" id="handoffSendModal" role="dialog" aria-modal="true" aria-labelledby="handoffSendTitle" aria-hidden="true">
+    <button class="modal-close" data-close="handoffSendModal" aria-label="Close">×</button>
+    <div class="modal-step active" data-handoff-send-step="choose">
+      <span class="label">SEND MONEY</span>
+      <h2 id="handoffSendTitle">Send to a Handoff name.</h2>
+      <p class="modal-description">Send an exact amount. Handoff covers the sending fee.</p>
+      <label>Recipient Handoff username<input id="handoffSendRecipient" autocomplete="off" maxlength="25" placeholder="@username" /></label>
+      <label>Amount to send<div class="amount-input"><span>$</span><input id="handoffSendAmount" inputmode="decimal" value="10.00" /><span>USDC</span></div></label>
+      <p class="modal-note" id="handoffSendLimit">Maximum $25.00 per transfer.</p>
+      <button class="button button-dark full" id="prepareHandoffSend">Review transfer <span>→</span></button>
+      <p class="modal-note" id="handoffSendChooseStatus" aria-live="polite"></p>
+    </div>
+    <div class="modal-step" data-handoff-send-step="review">
+      <button class="back-button" id="handoffSendBack">← Back</button>
+      <span class="label">REVIEW TRANSFER</span>
+      <h2>Check the details.</h2>
+      <div class="handoff-send-summary"><div><span>You send</span><b id="handoffSendReviewAmount">$10.00 USDC</b></div><div><span>To</span><b id="handoffSendReviewRecipient">@username</b></div><div><span>Sending fee</span><b>Covered by Handoff</b></div></div>
+      <p class="modal-description">You will confirm this one transfer with your secure sign-in. It expires in a few minutes and cannot be reused.</p>
+      <button class="button button-dark full" id="confirmHandoffSend">Confirm and send <span>→</span></button>
+      <p class="modal-note" id="handoffSendReviewStatus" aria-live="polite"></p>
+    </div>
+    <div class="modal-step" data-handoff-send-step="progress" aria-live="polite">
+      <span class="label">SENDING MONEY</span>
+      <div class="send-progress-mark">↗</div>
+      <h2 id="handoffSendProgressTitle">Confirming your transfer…</h2>
+      <p class="modal-description" id="handoffSendProgressCopy">We are checking that the exact amount arrives.</p>
+      <button class="button button-ghost-dark full" id="retryHandoffSend" hidden>Try sending again <span>↻</span></button>
+    </div>
+    <div class="modal-step" data-handoff-send-step="done">
+      <span class="label">TRANSFER COMPLETE</span>
+      <div class="send-progress-mark done">✓</div>
+      <h2>Money sent.</h2>
+      <p class="modal-description" id="handoffSendDoneCopy">The exact amount has been confirmed.</p>
+      <button class="button button-dark full" data-close="handoffSendModal">Done <span>✓</span></button>
     </div>
   </section>
 

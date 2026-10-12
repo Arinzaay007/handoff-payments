@@ -12,6 +12,7 @@
  *   retryWalletSetup()  asks Dynamic to provision the embedded EVM account again
  *   hasPasskey()         reports whether the signed-in recipient has enrolled a passkey
  *   registerPasskey()    opens the device's normal passkey enrollment prompt
+ *   signTransferAuthorization(typedData) signs one server-prepared, EIP-3009 payment confirmation
  *   signOut()            ends the Dynamic session
  */
 import { createElement as h, useEffect, useRef } from 'react';
@@ -44,7 +45,7 @@ function requireApi() {
 
 // Lives inside DynamicContextProvider so it can use the SDK hooks. It renders nothing.
 function DynamicBridge({ onChange }) {
-  const { setShowAuthFlow, sdkHasLoaded, handleLogOut } = useDynamicContext();
+  const { setShowAuthFlow, sdkHasLoaded, handleLogOut, primaryWallet } = useDynamicContext();
   const isLoggedIn = useIsLoggedIn();
   const { createWalletAccount } = useDynamicWaas();
   const getPasskeys = useGetPasskeys();
@@ -66,13 +67,22 @@ function DynamicBridge({ onChange }) {
         const passkeys = await getPasskeys();
         return Array.isArray(passkeys) && passkeys.length > 0;
       },
+      // The Dynamic embedded EVM account signs the one-time typed message locally. Handoff never
+      // asks for, exports, imports, or handles a private key. The server verifies this signature
+      // against the authenticated account and is the only party that can relay it.
+      signTransferAuthorization: async ({ domain, types, primaryType, message }) => {
+        if (!primaryWallet?.getWalletClient) throw new Error('Your secure payment account is still getting ready.');
+        const walletClient = await primaryWallet.getWalletClient();
+        if (!walletClient?.signTypedData) throw new Error('Your secure payment account is not ready to confirm this transfer.');
+        return walletClient.signTypedData({ domain, types, primaryType, message });
+      },
       registerPasskey: () => registerPasskey(),
       signOut: () => handleLogOut()
     };
     const waiters = apiWaiters;
     apiWaiters = [];
     waiters.forEach(callback => callback(api));
-  }, [createWalletAccount, getPasskeys, handleLogOut, registerPasskey, setShowAuthFlow]);
+  }, [createWalletAccount, getPasskeys, handleLogOut, primaryWallet, registerPasskey, setShowAuthFlow]);
 
   useEffect(() => {
     if (!sdkHasLoaded) return;
@@ -110,5 +120,6 @@ window.HandoffDynamic = {
   retryWalletSetup: () => requireApi().retryWalletSetup(),
   hasPasskey: () => requireApi().hasPasskey(),
   registerPasskey: () => requireApi().registerPasskey(),
+  signTransferAuthorization: typedData => requireApi().signTransferAuthorization(typedData),
   signOut: () => (api ? api.signOut() : undefined)
 };

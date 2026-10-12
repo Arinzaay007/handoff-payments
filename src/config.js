@@ -12,6 +12,12 @@ function capMinor(raw, ceiling) {
   return value > ceiling ? ceiling : value;
 }
 
+function minimumWei(raw, floor) {
+  if (!raw || !/^\d+$/.test(String(raw).trim())) return floor;
+  const value = BigInt(String(raw).trim());
+  return value > floor ? value : floor;
+}
+
 const config = Object.freeze({
   dynamic: {
     environmentId: required('DYNAMIC_ENVIRONMENT_ID') || required('NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID'),
@@ -34,6 +40,16 @@ const config = Object.freeze({
     // Read-only JSON-RPC used to verify the Monad USDC Transfer before a payment is shown as settled.
     rpcUrl: required('MONAD_RPC_URL') || 'https://rpc.monad.xyz'
   },
+  handoffTransfers: {
+    // Server-only account that pays Monad network fees for a signed, one-time USDC authorization.
+    // It is intentionally absent from browser configuration and must be securely injected and funded
+    // before Send money becomes available. Never reuse Dynamic's sponsorship: Monad is not on its
+    // supported sponsorship network list.
+    relayerPrivateKey: required('HANDOFF_RELAYER_PRIVATE_KEY'),
+    // At least 0.05 MON must be available before the feature can open. Deployments can increase
+    // this reserve but cannot reduce it; it leaves room for several sponsored confirmations.
+    minimumBalanceWei: minimumWei(required('HANDOFF_RELAYER_MIN_MON_WEI'), 50_000_000_000_000_000n)
+  },
   limits: {
     // Hard launch ceilings: 25 USDC per payment and 100 USDC rolling 24h. Environment values can only
     // lower these, never raise them.
@@ -49,12 +65,18 @@ function mainnetGuards() {
   };
 }
 
+// A boolean only — do not reveal any portion of the relayer key, address, or operating balance.
+function handoffTransfersReady() {
+  return /^0x[0-9a-fA-F]{64}$/.test(String(config.handoffTransfers.relayerPrivateKey || ''));
+}
+
 function status() {
   const renderRevision = required('RENDER_GIT_COMMIT');
   return {
     dynamicConfigured: Boolean(config.dynamic.environmentId),
     databaseConfigured: Boolean(config.supabase.url && config.supabase.serviceRoleKey),
     relayConfigured: Boolean(config.relay.apiKey),
+    handoffTransfersConfigured: handoffTransfersReady(),
     mainnetGuards: mainnetGuards(),
     // Public, non-secret deployment proof. Render supplies the exact Git commit at runtime.
     deploymentRevision: /^[0-9a-f]{40}$/i.test(renderRevision || '') ? renderRevision.toLowerCase() : null
@@ -68,8 +90,14 @@ function publicRuntimeConfig() {
       enabled: Boolean(config.dynamic.environmentId),
       environmentId: config.dynamic.environmentId
     },
+    handoffTransfers: {
+      // This static config intentionally remains closed. The HTTP route performs a live server-only
+      // RPC check of the relayer's Monad operating reserve before it can expose availability.
+      available: false,
+      maximumPerTransferUsdc: Number(config.limits.maxMainnetUsdcMinor) / 1_000_000
+    },
     mainnetGuards: mainnetGuards()
   };
 }
 
-module.exports = { config, status, publicRuntimeConfig };
+module.exports = { config, status, publicRuntimeConfig, handoffTransfersReady };

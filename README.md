@@ -28,6 +28,7 @@ supabase/migrations/
   0002_claim_handoff_profile.sql
   0003_payment_execution_guards.sql
   0004_exact_output_merchant_settlement.sql   # run after 0003; see "Database" below
+  0005_handoff_to_handoff_transfers.sql        # guarded one-time internal transfer intents
 src/
   paymentNetworks.js         # the eight executable EVM source networks, Solana/TON "not available yet", Monad
   paymentPolicy.js           # 25 USDC per payment, 100 USDC rolling 24h, amount parsing
@@ -69,6 +70,7 @@ server, build script, and `.env` loader all expect these nested paths.
 - **Caps enforced on the server and in the database:** 25 USDC per payment and 100 USDC in any rolling 24 hours per payer wallet, measured from Relay’s quoted payer source-USDC debit (not the merchant output). The environment can lower these, never raise them.
 - **A verified owner dashboard.** The signed-in recipient's `GET /api/me/portfolio` reports the real Monad USDC balance — an on-chain ERC-20 `balanceOf` read against the Monad USDC contract after verifying the RPC serves chain ID 143 — plus verified recipient receipt activity, scoped strictly to the signed-in profile and shown only after an on-chain source transaction was submitted (no `quote_created` or `awaiting_sender` records). A database total is never presented as a wallet balance, and when the RPC cannot be read the dashboard says **syncing/unavailable** rather than a fake zero. No payer address, key material, or recipient wallet leaves the server for this endpoint.
 - **Passkey-first recipient access.** Handoff recipients use Dynamic hosted sign-in with a passkey or email fallback. The product contains no seed-phrase, private-key, wallet-address, backup, or key-export screen. Dynamic provisions and secures the embedded recipient account; Handoff never receives, stores, exports, imports, or displays its key material or address.
+- **Handoff-to-Handoff Send money.** A signed-in owner can prepare an exact USDC transfer to another active `@username` without seeing or entering an address. Dynamic signs one short-lived EIP-3009 `transferWithAuthorization`; the server recovers the authenticated signer, broadcasts only that exact authorization through a dedicated Handoff-funded Monad relayer, and marks it complete only after it verifies the exact USDC receipt. There is no standing allowance. This feature stays closed unless migration `0005` is applied and the securely injected relayer maintains at least the configured MON operating reserve (0.05 MON default); the sender never needs MON.
 - A small Node server that proxies Relay's live `GET /chains` and `POST /quote/v2` APIs for the server only. The browser sees a sanitised per-network status at `GET /api/relay/routes`, never Relay's raw payload.
 - A minimal non-custodial `UsernameRegistry.sol` reference contract. It is not deployed or audited.
 
@@ -84,6 +86,17 @@ Flow, all server-side except the wallet prompt:
 
 Solana and TON are not available yet. Requests for them are refused before Relay is called.
 
+## Handoff-to-Handoff Send money
+
+This is a separate exact Monad-USDC payment path for a verified Handoff owner sending to another active canonical `@username`:
+
+1. `POST /api/handoff-transfers/intent` accepts only `{ recipientHandle, amount }` in an authenticated Dynamic session. The server resolves both embedded accounts, applies a 25 USDC-per-transfer / 100 USDC rolling-24-hour cap, and persists an immutable short-lived intent with a one-time EIP-3009 nonce.
+2. The browser receives the server-generated typed message only to ask the sender’s Dynamic embedded EVM account for a signature. It never receives or displays an account address, a private key, a relay transaction, or a network-token requirement.
+3. `POST /api/handoff-transfers/:id/authorization` accepts only that signature. The server recovers the signer, requires it to match the authenticated sender account, then calls Monad USDC `transferWithAuthorization` through a dedicated server-only relayer.
+4. The relayer covers Monad network fees. `GET /api/handoff-transfers/:id` stays in progress until the server independently verifies a successful USDC `Transfer` for exactly the signed amount; only then does the owner see **Money sent** and the recipient receive verified activity.
+
+The route is intentionally unavailable until `HANDOFF_RELAYER_PRIVATE_KEY` is securely configured **and** its Monad balance meets the 0.05 MON default operating reserve. A valid key without MON does not enable the UI or signature route.
+
 ## Run locally
 
 ```bash
@@ -95,7 +108,7 @@ npm start
 
 Configure public and server-only values as described in [`docs/ENV_SETUP.md`](docs/ENV_SETUP.md). Live routing needs `RELAY_API_KEY` on the server, which Relay requires on `POST /quote/v2` from 2 October 2026. Without it, every payment shows a quote preview or a clear "not configured" message.
 
-Tests: `npm test` runs the suites, including an in-memory Postgres run of migrations 0001–0004 and a JSDOM checkout that drives the real `public/app.js` against a stubbed wallet. Nothing in the test run reaches Relay, Supabase, Dynamic, or Monad. The checked-in UI works without a secret, but public username resolution and username claims deliberately fail closed until the server has Supabase credentials.
+Tests: `npm test` runs the suites, including an in-memory Postgres run of migrations 0001–0005 and a JSDOM checkout that drives the real `public/app.js` against a stubbed wallet. Nothing in the test run reaches Relay, Supabase, Dynamic, or Monad. The checked-in UI works without a secret, but public username resolution and username claims deliberately fail closed until the server has Supabase credentials.
 
 ## Deploy to Render
 
@@ -116,11 +129,12 @@ bundle is a build artifact and is not committed.
 ## What is still required before accepting real payments
 
 1. Add the Supabase secret/service key directly to the deployment host; never to the browser or chat.
-2. Apply `supabase/migrations/0002_claim_handoff_profile.sql`, then `supabase/migrations/0003_payment_execution_guards.sql`, then `supabase/migrations/0004_exact_output_merchant_settlement.sql`, in order in the Supabase SQL editor. Payment routes fail closed until the exact-output reservation function is present.
+2. Apply `supabase/migrations/0002_claim_handoff_profile.sql` through `supabase/migrations/0005_handoff_to_handoff_transfers.sql`, in order in the Supabase SQL editor. Payment and internal-transfer routes fail closed until their required server-only functions are present.
 3. Add the exact deployed HTTPS origin to Dynamic CORS settings and test email + passkey sign-in. In the Dynamic dashboard, keep only email OTP and passkeys enabled for sign-in, and keep embedded EVM wallets enabled. Phone, SMS, WhatsApp, and social sign-in must stay disabled.
 4. Set `RELAY_API_KEY` on the host (server-only). Make at least one small real payment on each live network before relying on it, and watch Relay's status for each.
-5. Add rate limits on the quote endpoint. Payment attempts, quote IDs, hashes, and status transitions are persisted; receipts are auditable from the database.
-6. Add monitoring, support flows, security review, and applicable legal/compliance checks before public launch.
+5. For Send money, create a dedicated server-only Monad relayer, fund it with at least 0.05 MON, securely inject `HANDOFF_RELAYER_PRIVATE_KEY`, and make a small controlled transfer. The feature remains closed until its live chain/balance check passes; recipients and senders never need to hold MON.
+6. Add rate limits on the quote and internal-transfer endpoints. Payment attempts, transfer intents, nonces, hashes, and status transitions are persisted; receipts are auditable from the database.
+7. Add monitoring, support flows, security review, and applicable legal/compliance checks before public launch.
 
 `npm audit` currently reports moderate transitive issues in the Dynamic SDK
 dependency tree. This build is **not** launch-ready.
