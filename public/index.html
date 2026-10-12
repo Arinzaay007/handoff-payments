@@ -45,7 +45,7 @@
             <div class="balance-head"><span>Available balance</span><button class="eye-button" aria-label="Toggle balance visibility" id="toggleBalance">◉</button></div>
             <div class="balance-amount" id="balanceAmount">—</div>
             <div class="balance-sub" id="balanceSub"><span class="stable-dot">$</span> Get started to view your confirmed balance</div>
-            <div class="balance-actions"><button class="button button-light" id="requestFromBalance"><span class="button-symbol">↗</span> Share payment page</button><button id="sendFromBalance" hidden aria-hidden="true" tabindex="-1"></button></div>
+            <div class="balance-actions"><button class="button button-light" id="requestFromBalance"><span class="button-symbol">↗</span> Share payment page</button><button class="button button-quiet" id="withdrawFromBalance">Withdraw to bank <span class="demo-pill">Preview</span></button><button id="sendFromBalance" hidden aria-hidden="true" tabindex="-1"></button></div>
             <div class="card-shine"></div>
           </article>
           <article class="identity-card">
@@ -105,6 +105,44 @@
       <code class="qr-payment-url" id="qrPaymentUrl">—</code>
       <div class="qr-payment-actions"><button class="button button-light" id="copyPaymentQrLink">Copy payment page <span>↗</span></button><button class="button button-ghost-dark" id="downloadPaymentQr">Download QR <span>↓</span></button><button class="button button-ghost-dark" id="downloadPaymentPoster">Download poster <span>✦</span></button></div>
       <p class="modal-note" id="qrPaymentStatus" aria-live="polite"></p>
+    </div>
+  </section>
+
+  <section class="modal compact-modal withdraw-demo-modal" id="withdrawDemoModal" role="dialog" aria-modal="true" aria-labelledby="withdrawDemoTitle" aria-hidden="true">
+    <button class="modal-close" data-close="withdrawDemoModal" aria-label="Close">×</button>
+    <div class="modal-step active" data-withdraw-step="amount">
+      <span class="label">BANK WITHDRAWAL PREVIEW</span>
+      <span class="demo-banner">DEMO ONLY · NO MONEY MOVES</span>
+      <h2 id="withdrawDemoTitle">See how bank withdrawal will work.</h2>
+      <p class="modal-description">Try the future review flow without sharing bank details, completing verification, or moving any funds.</p>
+      <label>Amount to preview<div class="amount-input"><span>$</span><input id="withdrawDemoAmount" inputmode="decimal" value="25.00" aria-describedby="withdrawDemoAmountHelp" /><span>USD</span></div></label>
+      <p class="demo-help" id="withdrawDemoAmountHelp">This is a demo amount only. Your balance will not change.</p>
+      <button class="button button-dark full" id="withdrawDemoToBank">Choose demo bank <span>→</span></button>
+    </div>
+    <div class="modal-step" data-withdraw-step="bank">
+      <button class="back-button" id="withdrawDemoBackToAmount">← Back</button>
+      <span class="label">DEMO DESTINATION</span>
+      <span class="demo-banner">DEMO ONLY · NO BANK DETAILS</span>
+      <h2>Choose a demo bank.</h2>
+      <p class="modal-description">A live withdrawal will securely confirm your bank account with the payout partner. Do not enter real account information here.</p>
+      <label>Demo bank destination<select id="withdrawDemoBank"><option>Sample Nigerian bank account</option></select></label>
+      <button class="button button-dark full" id="withdrawDemoReview">Review demo withdrawal <span>→</span></button>
+    </div>
+    <div class="modal-step" data-withdraw-step="review">
+      <button class="back-button" id="withdrawDemoBackToBank">← Back</button>
+      <span class="label">WITHDRAWAL REVIEW</span>
+      <span class="demo-banner">ESTIMATE ONLY · NOT A LIVE QUOTE</span>
+      <h2>Here is what you will review.</h2>
+      <div class="withdraw-demo-summary"><div><span>You withdraw</span><b id="withdrawDemoUsd">$25.00</b></div><div><span>Demo rate</span><b id="withdrawDemoRate">$1 ≈ ₦1,500</b></div><div><span>Demo fee</span><b id="withdrawDemoFee">₦375</b></div><div class="withdraw-demo-total"><span>Bank receives</span><b id="withdrawDemoNgn">₦37,125</b></div></div>
+      <p class="demo-help">This screen is illustrative only. A live withdrawal will show a binding rate, fee, expiry, and verified bank destination before you approve it.</p>
+      <button class="button button-dark full" id="completeWithdrawDemo">Finish demo <span>✓</span></button>
+    </div>
+    <div class="modal-step" data-withdraw-step="done">
+      <span class="label">DEMO COMPLETE</span>
+      <span class="demo-banner">NO MONEY MOVED</span>
+      <h2>Nothing was sent.</h2>
+      <p class="modal-description">Bank withdrawals are still in preview while we complete our regulated payout partnership. Your balance and payment page are unchanged.</p>
+      <button class="button button-dark full" data-close="withdrawDemoModal">Got it <span>✓</span></button>
     </div>
   </section>
 

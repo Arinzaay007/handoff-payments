@@ -199,6 +199,32 @@ test('a claimed recipient can show a local QR code for exactly their canonical p
   assert.equal(/amount|note|request/i.test(doc.querySelector('#qrModal').textContent), false, 'QR shares only the payment page');
 });
 
+test('bank withdrawal is an explicit guided demo that never sends funds, bank details, or a withdrawal request', async () => {
+  const { doc, requests } = await signInWithPortfolio({
+    balance: { status: 'available', amount: '82.00' }, activity: [], checkedAt: '2026-10-11T13:50:00.000Z'
+  });
+  await waitFor(() => doc.querySelector('#identityHandle').textContent === '@morgan', 'signed-in recipient');
+  const requestsBeforeDemo = requests.length;
+
+  doc.querySelector('#withdrawFromBalance').click();
+  assert.equal(doc.querySelector('#withdrawDemoModal').classList.contains('visible'), true);
+  assert.match(doc.querySelector('[data-withdraw-step="amount"]').textContent, /DEMO ONLY.*NO MONEY MOVES/i);
+  assert.equal(doc.querySelector('#withdrawDemoAmount').value, '25.00');
+
+  doc.querySelector('#withdrawDemoAmount').value = '25.00';
+  doc.querySelector('#withdrawDemoToBank').click();
+  assert.match(doc.querySelector('[data-withdraw-step="bank"]').textContent, /Do not enter real account information/i);
+  assert.equal(doc.querySelector('#withdrawDemoModal input[type="text"]'), null, 'the demo cannot collect bank details');
+
+  doc.querySelector('#withdrawDemoReview').click();
+  assert.match(doc.querySelector('#withdrawDemoNgn').textContent, /37,125/);
+  assert.match(doc.querySelector('[data-withdraw-step="review"]').textContent, /not a live quote/i);
+  doc.querySelector('#completeWithdrawDemo').click();
+  assert.match(doc.querySelector('[data-withdraw-step="done"]').textContent, /Nothing was sent/i);
+  assert.equal(requests.length, requestsBeforeDemo, 'the complete demo flow makes no network request');
+  assert.equal(/Monad|USDC|wallet|blockchain/i.test(doc.querySelector('#withdrawDemoModal').textContent), false);
+});
+
 test('a recipient can personalise their display name without changing their Handoff username or QR destination', async () => {
   const { doc, requests } = await signInWithPortfolio({
     balance: { status: 'available', amount: '12.00' }, activity: [], checkedAt: '2026-10-11T13:50:00.000Z'

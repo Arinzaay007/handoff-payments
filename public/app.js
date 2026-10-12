@@ -58,6 +58,10 @@ let networks = FALLBACK_SOURCE_NETWORKS.map(item => ({ ...item, ...NETWORK_STYLE
 const PAYMENT_POLL_MS = 3000;
 const PAYMENT_POLL_LIMIT_MS = 20 * 60 * 1000;
 const RECEIPT_TIMEOUT_MS = 3 * 60 * 1000;
+// Display-only values for the clearly marked withdrawal preview. They are never sent to an API,
+// used to alter balances, or described as a quote.
+const WITHDRAW_DEMO_NGN_PER_USD = 1500;
+const WITHDRAW_DEMO_FEE_RATE = 0.01;
 let currentPaymentQr = null;
 
 
@@ -944,6 +948,63 @@ async function initPublicPage(handle) {
   }
 }
 
+function showWithdrawDemoStep(name) {
+  $$('[data-withdraw-step]').forEach(step => step.classList.toggle('active', step.dataset.withdrawStep === name));
+}
+
+function withdrawalDemoAmount() {
+  const amount = Number($('#withdrawDemoAmount').value);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) {
+    throw new Error('Enter a demo amount between $0.01 and $100,000.');
+  }
+  return Math.round(amount * 100) / 100;
+}
+
+function formatDemoNaira(amount) {
+  return new Intl.NumberFormat('en-NG', {
+    style: 'currency',
+    currency: 'NGN',
+    maximumFractionDigits: 0
+  }).format(amount);
+}
+
+function renderWithdrawDemoReview() {
+  const amount = withdrawalDemoAmount();
+  const converted = Math.round(amount * WITHDRAW_DEMO_NGN_PER_USD);
+  const fee = Math.round(converted * WITHDRAW_DEMO_FEE_RATE);
+  $('#withdrawDemoUsd').textContent = `$${amount.toFixed(2)}`;
+  $('#withdrawDemoRate').textContent = `$1 ≈ ${formatDemoNaira(WITHDRAW_DEMO_NGN_PER_USD)}`;
+  $('#withdrawDemoFee').textContent = formatDemoNaira(fee);
+  $('#withdrawDemoNgn').textContent = formatDemoNaira(converted - fee);
+}
+
+function openWithdrawDemo() {
+  if (!state.auth.profile) return openAuthFlow();
+  const available = state.portfolio.balance.status === 'available' ? Number(state.portfolio.balance.amount) : NaN;
+  const suggested = Number.isFinite(available) && available > 0 ? Math.min(available, 25) : 25;
+  $('#withdrawDemoAmount').value = suggested.toFixed(2);
+  showWithdrawDemoStep('amount');
+  openModal('withdrawDemoModal');
+}
+
+function proceedWithdrawDemoToBank() {
+  try {
+    withdrawalDemoAmount();
+    showWithdrawDemoStep('bank');
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function proceedWithdrawDemoToReview() {
+  try {
+    renderWithdrawDemoReview();
+    showWithdrawDemoStep('review');
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
 function openAuthFlow() {
   if (state.auth.profile) return goTo('identity');
   if (state.auth.signedIn) return resumeOnboarding();
@@ -1211,6 +1272,12 @@ function bindEvents() {
   const sharePaymentPage = () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow();
   $('#quickRequest').addEventListener('click', sharePaymentPage);
   $('#requestFromBalance').addEventListener('click', sharePaymentPage);
+  $('#withdrawFromBalance').addEventListener('click', openWithdrawDemo);
+  $('#withdrawDemoToBank').addEventListener('click', proceedWithdrawDemoToBank);
+  $('#withdrawDemoBackToAmount').addEventListener('click', () => showWithdrawDemoStep('amount'));
+  $('#withdrawDemoReview').addEventListener('click', proceedWithdrawDemoToReview);
+  $('#withdrawDemoBackToBank').addEventListener('click', () => showWithdrawDemoStep('bank'));
+  $('#completeWithdrawDemo').addEventListener('click', () => showWithdrawDemoStep('done'));
   $('#createRequest').addEventListener('click', sharePaymentPage);
   $('#sharePaidPage').addEventListener('click', sharePaymentPage);
   $('#showPaymentQr').addEventListener('click', openPaymentQr);
