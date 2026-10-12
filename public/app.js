@@ -8,6 +8,10 @@ const state = {
   // and verified recipient receipt activity. Balance status: idle | syncing | available | unavailable.
   // "unavailable" is never shown as a zero balance.
   portfolio: { balance: { status: 'idle', amount: null }, activity: [], loaded: false },
+  // USD is the real settlement unit. Other currencies are a clearly labelled reference display
+  // preference and never influence funds, quotes, authorizations, or withdrawals.
+  displayCurrency: 'USD',
+  displayRates: { status: 'idle', rates: { USD: 1 }, checkedAt: null },
   features: { handoffTransfers: { available: false, maximumPerTransferUsdc: 25 } },
   handoffSend: { intent: null, busy: false, polling: null },
   auth: {
@@ -131,6 +135,70 @@ function goTo(page) {
   if (page === 'overview' || page === 'activity') refreshPortfolio();
 }
 
+const DISPLAY_CURRENCIES = new Set(['USD', 'NGN', 'GBP', 'INR']);
+const DISPLAY_LOCALES = Object.freeze({ USD: 'en-US', NGN: 'en-NG', GBP: 'en-GB', INR: 'en-IN' });
+
+function savedDisplayCurrency() {
+  try {
+    const value = window.localStorage?.getItem('handoff-display-currency');
+    return DISPLAY_CURRENCIES.has(value) ? value : 'USD';
+  } catch {
+    return 'USD';
+  }
+}
+
+function displayRateFor(currency = state.displayCurrency) {
+  return currency === 'USD' ? 1 : state.displayRates.rates?.[currency];
+}
+
+function displayCurrencyReady(currency = state.displayCurrency) {
+  return currency === 'USD' || (state.displayRates.status === 'available' && Number.isFinite(displayRateFor(currency)) && displayRateFor(currency) > 0);
+}
+
+function formatDisplayMoney(value, { signed = false } = {}) {
+  const amount = Number(value);
+  const currency = displayCurrencyReady() ? state.displayCurrency : 'USD';
+  const rate = displayRateFor(currency);
+  if (!Number.isFinite(amount) || !Number.isFinite(rate)) return '—';
+  if (currency === 'USD') return `${signed && amount < 0 ? '−' : ''}$${Math.abs(amount).toFixed(2)}`;
+  const converted = Math.abs(amount) * rate;
+  const formatted = new Intl.NumberFormat(DISPLAY_LOCALES[currency], {
+    style: 'currency', currency, currencyDisplay: 'narrowSymbol', minimumFractionDigits: 2, maximumFractionDigits: 2
+  }).format(converted);
+  return `${signed && amount < 0 ? '−' : ''}${formatted}`;
+}
+
+function displayCurrencyIndicator() {
+  return { USD: '$', NGN: '₦', GBP: '£', INR: '₹' }[state.displayCurrency] || '$';
+}
+
+async function loadDisplayRates() {
+  if (state.displayCurrency === 'USD' || state.displayRates.status === 'loading') return;
+  state.displayRates.status = 'loading';
+  renderBalance();
+  try {
+    const data = await apiFetch('/api/display-rates');
+    const rates = data?.rates;
+    if (!rates || !['NGN', 'GBP', 'INR'].every(code => Number.isFinite(rates[code]) && rates[code] > 0)) throw new Error('Exchange display is unavailable.');
+    state.displayRates = { status: 'available', rates: { USD: 1, NGN: rates.NGN, GBP: rates.GBP, INR: rates.INR }, checkedAt: data.checkedAt || null };
+  } catch {
+    // The account balance remains USD; never guess a rate or imply that an FX conversion happened.
+    state.displayRates.status = 'unavailable';
+  }
+  renderBalance();
+  renderActivity();
+}
+
+function setDisplayCurrency(currency) {
+  const next = DISPLAY_CURRENCIES.has(currency) ? currency : 'USD';
+  state.displayCurrency = next;
+  try { window.localStorage?.setItem('handoff-display-currency', next); } catch { /* Preference remains for this page. */ }
+  $('#displayCurrency').value = next;
+  renderBalance();
+  renderActivity();
+  if (next !== 'USD' && !displayCurrencyReady(next)) loadDisplayRates();
+}
+
 function renderActivity() {
   const blank = `<div class="activity-item"><div class="activity-icon in">⌁</div><div class="activity-main"><b>No payments yet</b><span>Completed payments will appear here.</span></div></div>`;
   const syncing = `<div class="activity-item"><div class="activity-icon in">⌁</div><div class="activity-main"><b>Checking for payments…</b><span>Your activity is loading securely.</span></div></div>`;
@@ -147,7 +215,10 @@ function activityItemMarkup(item) {
   const complete = Boolean(item.settlementVerified && item.status === 'settled');
   const amount = item.receive?.amount || item.receive?.requested;
   const internalSend = item.kind === 'handoff_transfer' && item.direction === 'out';
-  const amountText = amount ? `${internalSend ? '−' : '+'}$${amount}` : 'Payment';
+  const amountValue = Number(amount);
+  const amountText = Number.isFinite(amountValue)
+    ? `${internalSend ? '−' : '+'}${formatDisplayMoney(amountValue)}`
+    : 'Payment';
   const title = item.kind === 'handoff_transfer'
     ? (internalSend ? 'Money sent' : 'Money received')
     : (complete ? 'Payment received' : item.final ? 'Payment update' : 'Payment in progress');
@@ -156,32 +227,36 @@ function activityItemMarkup(item) {
   return `<div class="activity-item"><div class="activity-icon ${internalSend ? 'out' : 'in'}">${internalSend ? '↗' : '↙'}</div><div class="activity-main"><b>${title}</b><span>${detail}</span></div><div class="activity-right"><b>${amountText}</b><span>${progress}</span></div></div>`;
 }
 
-// The server reads the payment balance from the settlement chain. The recipient UI deliberately
-// presents it as a dollar balance and never substitutes a fabricated zero when it cannot be read.
+// The server reads the real payment balance in USD. A selected NGN, GBP, or INR view is only a
+// reference display; it never changes the balance, a payment amount, a quote, or a withdrawal.
 function renderBalance() {
   const profile = state.auth.profile;
   const balance = state.portfolio.balance;
   const amount = $('#balanceAmount');
   const sub = $('#balanceSub');
+  const indicator = `<span class="stable-dot">${displayCurrencyIndicator()}</span>`;
   if (!profile) {
     amount.innerHTML = state.balanceVisible ? '—' : '•••';
-    sub.innerHTML = '<span class="stable-dot">$</span> Sign in to view your confirmed balance';
+    sub.innerHTML = `${indicator} Sign in to view your confirmed balance`;
     return;
   }
   if (!state.balanceVisible) {
     amount.innerHTML = '•••';
-    sub.innerHTML = '<span class="stable-dot">$</span> Balance hidden';
+    sub.innerHTML = `${indicator} Balance hidden`;
     return;
   }
   if (balance.status === 'available') {
-    amount.innerHTML = `$${balance.amount}`;
-    sub.innerHTML = '<span class="stable-dot">$</span> Confirmed balance';
+    amount.textContent = formatDisplayMoney(balance.amount);
+    if (state.displayCurrency === 'USD') sub.innerHTML = `${indicator} Confirmed balance`;
+    else if (displayCurrencyReady()) sub.innerHTML = `${indicator} Reference display in ${state.displayCurrency} · your balance remains in USD`;
+    else if (state.displayRates.status === 'loading') sub.innerHTML = `${indicator} Loading your ${state.displayCurrency} display`;
+    else sub.innerHTML = '<span class="stable-dot">$</span> Exchange display is unavailable · showing your USD balance';
     return;
   }
   amount.innerHTML = '—';
   sub.innerHTML = balance.status === 'unavailable'
-    ? '<span class="stable-dot">$</span> We could not refresh your balance — this is not a zero balance'
-    : '<span class="stable-dot">$</span> Checking your confirmed balance';
+    ? `${indicator} We could not refresh your balance — this is not a zero balance`
+    : `${indicator} Checking your confirmed balance`;
 }
 
 // Loads the signed-in owner's portfolio. Failures keep the last honest state: an unreadable RPC
@@ -1465,7 +1540,8 @@ function bindEvents() {
   $('#confirmHandoffSend').addEventListener('click', confirmHandoffSend);
   $('#retryHandoffSend').addEventListener('click', confirmHandoffSend);
   $('#openIdentity').addEventListener('click', () => state.auth.profile ? goTo('identity') : openAuthFlow());
-  $('#toggleBalance').addEventListener('click', () => { state.balanceVisible = !state.balanceVisible; renderIdentity(); });
+  $('#toggleBalance').addEventListener('click', () => { state.balanceVisible = !state.balanceVisible; renderBalance(); });
+  $('#displayCurrency').addEventListener('change', event => setDisplayCurrency(event.target.value));
   $('#copyHandle').addEventListener('click', () => state.auth.profile ? copyText(`@${state.auth.profile.username}`, 'Handoff username copied') : openAuthFlow());
   $('#copyPublicLink').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
   $('#shareProfile').addEventListener('click', () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow());
@@ -1523,7 +1599,10 @@ function init() {
     initPublicPage(publicHandle);
     return;
   }
+  state.displayCurrency = savedDisplayCurrency();
+  $('#displayCurrency').value = state.displayCurrency;
   renderActivity();
+  renderBalance();
   renderIdentity();
   renderHandoffSendAvailability();
   renderRecipientProof();
@@ -1532,5 +1611,6 @@ function init() {
   bindEvents();
   refreshRoutes(true);
   initialiseDynamic();
+  if (state.displayCurrency !== 'USD') loadDisplayRates();
 }
 init();

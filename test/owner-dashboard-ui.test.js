@@ -173,6 +173,24 @@ test('the mobile menu has close, outside-tap, and destination-selection return p
   assert.equal(sidebar.classList.contains('open'), false);
 });
 
+test('a user can switch their balance and activity into a reference NGN display without changing funds', async () => {
+  const { doc, requests } = await signInWithPortfolio({
+    balance: { asset: 'USDC', network: 'Monad', chainId: 143, status: 'available', amount: '24.75', checkedAt: '2026-10-10T12:00:00.000Z' },
+    activity: [SETTLED_ITEM], checkedAt: '2026-10-10T12:00:00.000Z'
+  }, {
+    'GET /api/display-rates': () => ({ body: { base: 'USD', rates: { USD: 1, NGN: 1500, GBP: 0.79, INR: 83 }, checkedAt: '2026-10-12T12:00:00.000Z', referenceOnly: true } })
+  });
+  await waitFor(() => doc.querySelector('#balanceAmount').textContent.includes('24.75'), 'the USD balance');
+  const picker = doc.querySelector('#displayCurrency');
+  picker.value = 'NGN';
+  picker.dispatchEvent(new doc.defaultView.Event('change', { bubbles: true }));
+  await waitFor(() => /37,125/.test(doc.querySelector('#balanceAmount').textContent), 'the reference NGN amount');
+  assert.match(doc.querySelector('#balanceSub').textContent, /Reference display in NGN.*balance remains in USD/);
+  assert.match(doc.querySelector('#activityList').textContent, /36,750/, 'activity follows the selected display preference');
+  assert.equal(requests.filter(request => request.url === '/api/display-rates').length, 1);
+  assert.equal(requests.some(request => /handoff-transfers|withdraw|payments/.test(request.url)), false, 'display selection cannot create a payment or withdrawal');
+});
+
 test('the dashboard shows verified recipient receipt activity, and nothing before submission', async () => {
   const { doc } = await signInWithPortfolio({
     balance: { asset: 'USDC', network: 'Monad', chainId: 143, status: 'available', amount: '1234.56', checkedAt: '2026-10-10T12:00:00.000Z' },

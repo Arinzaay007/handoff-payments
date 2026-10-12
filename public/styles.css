@@ -770,3 +770,26 @@ img, svg, canvas { max-width: 100%; }
   .identity-card { min-height: 207px; padding: 17px; }
   .request-panel { min-height: 230px; padding: 17px; }
 }
+
+/* Currency display preference: a reference view only; payments remain exact USD amounts. */
+.balance-tools { display: flex; align-items: center; gap: 8px; }
+.currency-picker { display: inline-flex; align-items: center; }
+.currency-picker select {
+  height: 28px;
+  padding: 0 23px 0 9px;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 9px;
+  appearance: auto;
+  background: rgba(255,255,255,.09);
+  color: #fffaf7;
+  font: 700 9px/1 var(--mono);
+  letter-spacing: .06em;
+}
+.currency-picker select:focus { outline-color: rgba(255,186,165,.9); }
+.currency-picker select option { color: #302d34; background: #fffdf9; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
+
+@media (max-width: 780px) {
+  .balance-tools { gap: 5px; }
+  .currency-picker select { height: 26px; padding-left: 7px; font-size: 8px; }
+}
