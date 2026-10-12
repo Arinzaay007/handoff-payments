@@ -11,6 +11,7 @@ const { JSDOM } = require('jsdom');
 const ROOT = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(ROOT, 'public/index.html'), 'utf8');
 const appSource = fs.readFileSync(path.join(ROOT, 'public/app.js'), 'utf8');
+const styles = fs.readFileSync(path.join(ROOT, 'public/styles.css'), 'utf8');
 
 const MORGAN_PROFILE = {
   id: '22222222-2222-4222-8222-222222222222',
@@ -134,6 +135,13 @@ test('mobile navigation mirrors the desktop destinations and keeps the selected 
   assert.equal(doc.querySelector('#get-paidPage').classList.contains('active'), true);
   assert.equal(doc.querySelector('.mobile-nav-item[data-page="get-paid"]').classList.contains('active'), true);
   assert.equal(doc.querySelector('.nav-item[data-page="get-paid"]').classList.contains('active'), true);
+});
+
+test('mobile CSS is fluid on narrow screens and keeps bottom sheets reachable', () => {
+  assert.match(styles, /body \{ min-width: 0; \}/, 'the desktop minimum width is explicitly cancelled');
+  assert.match(styles, /@media \(max-width: 360px\)[\s\S]*?\.main-content \{ padding-right: 12px; padding-left: 12px; \}/);
+  assert.match(styles, /@media \(max-width: 320px\)[\s\S]*?\.balance-actions \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  assert.match(styles, /max-height: calc\(100dvh - env\(safe-area-inset-top\)\)/, 'sheets stay inside the visible device height');
 });
 
 test('the mobile menu has close, outside-tap, and destination-selection return paths', async () => {
