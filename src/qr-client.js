@@ -9,7 +9,9 @@ import QRCode from 'qrcode';
 
 function paymentPageDataUrl(paymentPageUrl) {
   const url = new URL(paymentPageUrl);
-  if (!/^https?:$/.test(url.protocol) || !/^\/@[a-z0-9_]{3,24}$/i.test(url.pathname)) {
+  if (!/^https?:$/.test(url.protocol)
+    || !/^\/@[a-z0-9_]{3,24}$/i.test(url.pathname)
+    || url.search || url.hash || url.username || url.password) {
     throw new Error('A valid Handoff payment page is required to create a QR code.');
   }
   return QRCode.toDataURL(url.toString(), {
@@ -23,4 +25,6 @@ function paymentPageDataUrl(paymentPageUrl) {
   });
 }
 
-window.HandoffQr = Object.freeze({ paymentPageDataUrl });
+// esbuild's IIFE globalName publishes this named export as window.HandoffQr. Do not assign to
+// window directly here: the IIFE's final assignment would overwrite that value with undefined.
+export { paymentPageDataUrl };
