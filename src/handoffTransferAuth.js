@@ -12,8 +12,12 @@ const CLOCK_SKEW_SECONDS = 30;
 const SIGNATURE_RE = /^0x[0-9a-fA-F]{130}$/;
 const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/;
 
+// Monad's deployed USDC contract identifies its EIP-712 domain as "USDC" (not
+// Circle's more common "USD Coin" label). The value was read from the live
+// contract's name(), version(), and DOMAIN_SEPARATOR() before release. A mismatch
+// makes a locally valid signature revert when transferWithAuthorization is relayed.
 const USDC_EIP3009_DOMAIN = Object.freeze({
-  name: 'USD Coin',
+  name: 'USDC',
   version: '2',
   chainId: MONAD.chainId,
   verifyingContract: MONAD.usdcAddress
