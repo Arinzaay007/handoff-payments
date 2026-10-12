@@ -1284,7 +1284,7 @@ async function prepareHandoffSend() {
     });
     state.handoffSend.intent = intent;
     state.handoffSend.signature = null;
-    $('#handoffSendReviewAmount').textContent = `$${intent.amount} ${intent.asset}`;
+    $('#handoffSendReviewAmount').textContent = `$${intent.amount}`;
     $('#handoffSendReviewRecipient').textContent = `${intent.recipient.displayName} · @${intent.recipient.username}`;
     $('#handoffSendReviewStatus').textContent = '';
     showHandoffSendStep('review');
@@ -1292,19 +1292,19 @@ async function prepareHandoffSend() {
     if (error.status === 401) return expireSession();
     $('#handoffSendChooseStatus').textContent = error.message || 'We could not prepare this transfer.';
   } finally {
-    setHandoffSendBusy(button, false, 'Review transfer <span>→</span>');
+    setHandoffSendBusy(button, false, 'Review payment <span>→</span>');
   }
 }
 
 function showHandoffSendProgress(copy = 'We are checking that the exact amount arrives.') {
-  $('#handoffSendProgressTitle').textContent = 'Confirming your transfer…';
+  $('#handoffSendProgressTitle').textContent = 'Completing your payment…';
   $('#handoffSendProgressCopy').textContent = copy;
   $('#retryHandoffSend').hidden = true;
   showHandoffSendStep('progress');
 }
 
 function showHandoffSendRetry(message) {
-  $('#handoffSendProgressTitle').textContent = 'Your transfer needs another try.';
+  $('#handoffSendProgressTitle').textContent = 'Your payment needs another try.';
   $('#handoffSendProgressCopy').textContent = message || 'No money has been marked as sent.';
   $('#retryHandoffSend').hidden = false;
   showHandoffSendStep('progress');
@@ -1314,7 +1314,7 @@ function applyHandoffSendStatus(transfer) {
   if (!transfer) return;
   if (transfer.status === 'settled') {
     stopHandoffSendPolling();
-    $('#handoffSendDoneCopy').textContent = `$${transfer.amount} USDC was sent to @${transfer.recipient.username} and confirmed.`;
+    $('#handoffSendDoneCopy').textContent = `$${transfer.amount} was sent to @${transfer.recipient.username} and confirmed.`;
     showHandoffSendStep('done');
     refreshPortfolio();
     return;
@@ -1349,15 +1349,15 @@ async function confirmHandoffSend() {
   const intent = state.handoffSend.intent;
   if (!intent?.transferId || !intent.authorization) return showHandoffSendStep('choose');
   const button = $('#confirmHandoffSend');
-  setHandoffSendBusy(button, true, 'Confirming securely…');
+  setHandoffSendBusy(button, true, 'Checking approval…');
   $('#handoffSendReviewStatus').textContent = '';
   try {
     // The exact, server-generated typed message is signed by Dynamic. No amount, recipient, or
     // account detail from the page is accepted by the server when it receives the signature.
     const signature = state.handoffSend.signature || await window.HandoffDynamic?.signTransferAuthorization?.(intent.authorization);
-    if (!signature) throw new Error('Your secure payment account could not confirm this transfer.');
+    if (!signature) throw new Error('We could not approve this payment.');
     state.handoffSend.signature = signature;
-    showHandoffSendProgress('Sending your confirmed transfer…');
+    showHandoffSendProgress('Completing your approved payment…');
     const transfer = await apiFetch(`/api/handoff-transfers/${encodeURIComponent(intent.transferId)}/authorization`, {
       method: 'POST', body: { signature }
     });
@@ -1371,7 +1371,7 @@ async function confirmHandoffSend() {
       showHandoffSendRetry(error.message || 'We could not send this transfer yet.');
     }
   } finally {
-    setHandoffSendBusy(button, false, 'Confirm and send <span>→</span>');
+    setHandoffSendBusy(button, false, 'Approve payment <span>→</span>');
   }
 }
 

@@ -142,6 +142,18 @@ test('mobile CSS is fluid on narrow screens and keeps bottom sheets reachable', 
   assert.match(styles, /@media \(max-width: 360px\)[\s\S]*?\.main-content \{ padding-right: 12px; padding-left: 12px; \}/);
   assert.match(styles, /@media \(max-width: 320px\)[\s\S]*?\.balance-actions \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   assert.match(styles, /max-height: calc\(100dvh - env\(safe-area-inset-top\)\)/, 'sheets stay inside the visible device height');
+  assert.match(styles, /Dense mobile scale[\s\S]*?\.balance-card \{ min-height: 252px; padding: 19px; border-radius: 22px; \}/, 'dashboard cards use the compact mobile scale');
+  assert.match(styles, /\.mobile-bottom-nav \{ right: 8px; bottom: calc\(7px \+ env\(safe-area-inset-bottom\)\); left: 8px; min-height: 60px;/, 'navigation is compact without losing a 44px+ tap target');
+});
+
+test('Send money uses ordinary payment and device-approval language, never crypto language', () => {
+  const start = html.indexOf('id="handoffSendModal"');
+  const end = html.indexOf('id="profileModal"');
+  const modal = html.slice(start, end);
+  assert.match(modal, /APPROVE PAYMENT/);
+  assert.match(modal, /Use your usual device approval to continue/);
+  assert.match(modal, />Approve payment </);
+  assert.doesNotMatch(modal, /transaction|signature|wallet|blockchain|gas|USDC/i);
 });
 
 test('the mobile menu has close, outside-tap, and destination-selection return paths', async () => {

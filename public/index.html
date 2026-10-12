@@ -162,24 +162,24 @@
       <h2 id="handoffSendTitle">Send to a Handoff name.</h2>
       <p class="modal-description">Send an exact amount. Handoff covers the sending fee.</p>
       <label>Recipient Handoff username<input id="handoffSendRecipient" autocomplete="off" maxlength="25" placeholder="@username" /></label>
-      <label>Amount to send<div class="amount-input"><span>$</span><input id="handoffSendAmount" inputmode="decimal" value="10.00" /><span>USDC</span></div></label>
+      <label>Amount to send<div class="amount-input"><span>$</span><input id="handoffSendAmount" inputmode="decimal" value="10.00" /><span>USD</span></div></label>
       <p class="modal-note" id="handoffSendLimit">Maximum $25.00 per transfer.</p>
-      <button class="button button-dark full" id="prepareHandoffSend">Review transfer <span>→</span></button>
+      <button class="button button-dark full" id="prepareHandoffSend">Review payment <span>→</span></button>
       <p class="modal-note" id="handoffSendChooseStatus" aria-live="polite"></p>
     </div>
     <div class="modal-step" data-handoff-send-step="review">
       <button class="back-button" id="handoffSendBack">← Back</button>
-      <span class="label">REVIEW TRANSFER</span>
+      <span class="label">APPROVE PAYMENT</span>
       <h2>Check the details.</h2>
-      <div class="handoff-send-summary"><div><span>You send</span><b id="handoffSendReviewAmount">$10.00 USDC</b></div><div><span>To</span><b id="handoffSendReviewRecipient">@username</b></div><div><span>Sending fee</span><b>Covered by Handoff</b></div></div>
-      <p class="modal-description">You will confirm this one transfer with your secure sign-in. It expires in a few minutes and cannot be reused.</p>
-      <button class="button button-dark full" id="confirmHandoffSend">Confirm and send <span>→</span></button>
+      <div class="handoff-send-summary"><div><span>You send</span><b id="handoffSendReviewAmount">$10.00</b></div><div><span>To</span><b id="handoffSendReviewRecipient">@username</b></div><div><span>Sending fee</span><b>Covered by Handoff</b></div></div>
+      <p class="modal-description">Use your usual device approval to continue. It applies only to this exact payment and expires in a few minutes.</p>
+      <button class="button button-dark full" id="confirmHandoffSend">Approve payment <span>→</span></button>
       <p class="modal-note" id="handoffSendReviewStatus" aria-live="polite"></p>
     </div>
     <div class="modal-step" data-handoff-send-step="progress" aria-live="polite">
       <span class="label">SENDING MONEY</span>
       <div class="send-progress-mark">↗</div>
-      <h2 id="handoffSendProgressTitle">Confirming your transfer…</h2>
+      <h2 id="handoffSendProgressTitle">Completing your payment…</h2>
       <p class="modal-description" id="handoffSendProgressCopy">We are checking that the exact amount arrives.</p>
       <button class="button button-ghost-dark full" id="retryHandoffSend" hidden>Try sending again <span>↻</span></button>
     </div>
