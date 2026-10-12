@@ -167,3 +167,20 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 @media (max-width: 450px) {
   .balance-actions .button-quiet { width: 100%; }
 }
+
+/* Handoff-to-Handoff send money: simple payment language; the underlying one-time confirmation
+   and fee-sponsored relay never expose account addresses or network-token requirements here. */
+.button-send { border-color: rgba(217,255,99,.42); background: rgba(217,255,99,.11); color: #eaffb5; }
+.button-send:hover { border-color: var(--lime); background: rgba(217,255,99,.2); color: #fff; }
+.handoff-send-modal .modal-description { max-width: 390px; }
+.handoff-send-summary { display: grid; gap: 0; margin: 18px 0 14px; padding: 5px 16px; border: 1px solid #dceac0; border-radius: 15px; background: linear-gradient(145deg, #f5ffe8, #edf7ea); }
+.handoff-send-summary > div { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid #dfe9d2; color: #77816e; font-size: 11px; }
+.handoff-send-summary > div:first-child { border-top: 0; }
+.handoff-send-summary b { max-width: 63%; overflow: hidden; color: #31451e; font: 700 11px var(--mono); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.send-progress-mark { display: grid; width: 52px; height: 52px; margin: 17px 0 15px; place-items: center; border-radius: 17px; background: var(--lime); color: #354d0e; font-size: 24px; font-weight: 800; box-shadow: 0 10px 22px rgba(125,157,28,.18); }
+.send-progress-mark.done { background: #d9f8de; color: #39804b; }
+.handoff-send-modal #retryHandoffSend { margin-top: 17px; }
+
+@media (max-width: 450px) {
+  .balance-actions .button-send { width: 100%; }
+}

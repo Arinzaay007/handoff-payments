@@ -70,6 +70,54 @@ async function listRecipientActivity(profileId) {
     .map(recipientActivityItem);
 }
 
+// Internal Handoff transfers become activity only after the exact Monad-USDC receipt has been
+// verified and the transfer is settled. It intentionally carries no account address, relayer hash,
+// or authorization data into the recipient UI. The `or` filter includes a sender's own completed
+// sends as well, so the person who sends money gets an honest receipt in their activity list.
+function handoffActivityItem(transfer, profileId) {
+  const incoming = transfer.recipient_profile_id === profileId;
+  return {
+    paymentId: transfer.id,
+    kind: 'handoff_transfer',
+    direction: incoming ? 'in' : 'out',
+    status: 'settled',
+    label: incoming ? 'Money received' : 'Money sent',
+    final: true,
+    sourceNetwork: null,
+    receive: {
+      network: MONAD.name,
+      asset: MONAD.asset,
+      requested: formatUsdc(transfer.amount),
+      amount: formatUsdc(transfer.amount)
+    },
+    sourceTxHash: null,
+    destinationTxHash: null,
+    settlementVerified: true,
+    failure: null,
+    createdAt: transfer.created_at || null,
+    updatedAt: transfer.updated_at || null
+  };
+}
+
+async function listHandoffTransferActivity(profileId) {
+  try {
+    const id = encodeURIComponent(profileId);
+    const rows = await request(
+      `handoff_transfers?select=id,sender_profile_id,recipient_profile_id,amount,status,created_at,updated_at`
+      + `&or=(recipient_profile_id.eq.${id},sender_profile_id.eq.${id})&status=eq.settled`
+      + `&order=created_at.desc&limit=${ACTIVITY_LIMIT}`
+    );
+    return (Array.isArray(rows) ? rows : [])
+      .filter(row => row?.status === 'settled' && (row.recipient_profile_id === profileId || row.sender_profile_id === profileId))
+      .map(row => handoffActivityItem(row, profileId));
+  } catch (error) {
+    // During a rolling release, migration 0005 may not have reached the database yet. Existing
+    // verified external-payment activity remains usable; do not fabricate internal activity.
+    if (error?.details?.code === 'PGRST205' || error?.details?.code === 'PGRST202' || error?.details?.code === '42P01') return [];
+    throw error;
+  }
+}
+
 async function readBalance(walletAddress) {
   const checkedAt = new Date().toISOString();
   try {
@@ -116,10 +164,14 @@ async function readBalance(walletAddress) {
  * the caller's own recipient profile.
  */
 async function getRecipientPortfolio(profile) {
-  const [balance, activity] = await Promise.all([
+  const [balance, relayActivity, handoffActivity] = await Promise.all([
     readBalance(profile.wallet),
-    listRecipientActivity(profile.id)
+    listRecipientActivity(profile.id),
+    listHandoffTransferActivity(profile.id)
   ]);
+  const activity = [...relayActivity, ...handoffActivity]
+    .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0))
+    .slice(0, ACTIVITY_LIMIT);
   return {
     balance,
     activity,
@@ -130,6 +182,8 @@ async function getRecipientPortfolio(profile) {
 module.exports = {
   getRecipientPortfolio,
   listRecipientActivity,
+  listHandoffTransferActivity,
   recipientActivityItem,
+  handoffActivityItem,
   isVisibleRecipientActivity
 };

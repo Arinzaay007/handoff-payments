@@ -48,6 +48,17 @@ services:
       - key: RELAY_API_KEY
         sync: false
 
-      # Optional. Monad JSON-RPC used to verify USDC settlement. Defaults to https://rpc.monad.xyz.
+      # Optional. Monad JSON-RPC used to verify USDC settlement and relayer operating balance.
+      # Defaults to https://rpc.monad.xyz.
       - key: MONAD_RPC_URL
+        sync: false
+
+      # SERVER-ONLY SECRET. Dedicated Monad relayer for Handoff-to-Handoff Send money.
+      # Do not enter this until migration 0005 is applied and the account is funded with MON.
+      # It never belongs in browser code, a commit, or chat.
+      - key: HANDOFF_RELAYER_PRIVATE_KEY
+        sync: false
+
+      # Optional non-secret MON reserve in wei. 0.05 MON is enforced as the minimum even if unset.
+      - key: HANDOFF_RELAYER_MIN_MON_WEI
         sync: false

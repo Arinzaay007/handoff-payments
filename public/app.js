@@ -8,6 +8,8 @@ const state = {
   // and verified recipient receipt activity. Balance status: idle | syncing | available | unavailable.
   // "unavailable" is never shown as a zero balance.
   portfolio: { balance: { status: 'idle', amount: null }, activity: [], loaded: false },
+  features: { handoffTransfers: { available: false, maximumPerTransferUsdc: 25 } },
+  handoffSend: { intent: null, busy: false, polling: null },
   auth: {
     ready: false,
     // True while Dynamic holds a signed-in session for this browser.
@@ -97,6 +99,7 @@ function openModal(id) {
 function closeModals() {
   $('#modalBackdrop').classList.remove('visible');
   $$('.modal.visible').forEach(modal => { modal.classList.remove('visible'); modal.setAttribute('aria-hidden', 'true'); });
+  stopHandoffSendPolling?.();
 }
 function goTo(page) {
   $$('.page').forEach(el => el.classList.remove('active'));
@@ -129,11 +132,14 @@ function renderActivity() {
 function activityItemMarkup(item) {
   const complete = Boolean(item.settlementVerified && item.status === 'settled');
   const amount = item.receive?.amount || item.receive?.requested;
-  const amountText = amount ? `+$${amount}` : 'Payment';
-  const title = complete ? 'Payment received' : item.final ? 'Payment update' : 'Payment in progress';
+  const internalSend = item.kind === 'handoff_transfer' && item.direction === 'out';
+  const amountText = amount ? `${internalSend ? '−' : '+'}$${amount}` : 'Payment';
+  const title = item.kind === 'handoff_transfer'
+    ? (internalSend ? 'Money sent' : 'Money received')
+    : (complete ? 'Payment received' : item.final ? 'Payment update' : 'Payment in progress');
   const detail = complete ? 'Payment confirmed' : item.final ? 'Payment could not be completed' : 'We are confirming this payment';
   const progress = complete ? 'Complete' : item.final ? 'Complete' : 'Confirming';
-  return `<div class="activity-item"><div class="activity-icon in">↙</div><div class="activity-main"><b>${title}</b><span>${detail}</span></div><div class="activity-right"><b>${amountText}</b><span>${progress}</span></div></div>`;
+  return `<div class="activity-item"><div class="activity-icon ${internalSend ? 'out' : 'in'}">${internalSend ? '↗' : '↙'}</div><div class="activity-main"><b>${title}</b><span>${detail}</span></div><div class="activity-right"><b>${amountText}</b><span>${progress}</span></div></div>`;
 }
 
 // The server reads the payment balance from the settlement chain. The recipient UI deliberately
@@ -746,6 +752,8 @@ async function apiFetch(path, { method = 'GET', body } = {}) {
 }
 
 function resetLocalSession() {
+  stopHandoffSendPolling();
+  state.handoffSend = { intent: null, signature: null, busy: false, polling: null };
   state.auth.flowToken += 1;
   state.auth.signedIn = false;
   state.auth.awaitingSignIn = false;
@@ -1207,12 +1215,163 @@ async function saveProfileName() {
   }
 }
 
+function showHandoffSendStep(name) {
+  $$('.modal-step', $('#handoffSendModal')).forEach(step => step.classList.toggle('active', step.dataset.handoffSendStep === name));
+}
+
+function stopHandoffSendPolling() {
+  if (state.handoffSend.polling) clearTimeout(state.handoffSend.polling);
+  state.handoffSend.polling = null;
+}
+
+function renderHandoffSendAvailability() {
+  const button = $('#sendFromBalance');
+  if (!button) return;
+  button.disabled = false;
+  button.removeAttribute('aria-disabled');
+  button.innerHTML = 'Send money <span>→</span>';
+  button.title = state.features.handoffTransfers.available
+    ? 'Send money to another Handoff username'
+    : 'Send money is being prepared';
+}
+
+function openHandoffSend() {
+  if (!state.auth.profile) return openAuthFlow();
+  if (!state.features.handoffTransfers.available) {
+    return toast('Send money will open once Handoff’s sending-fee account is ready.');
+  }
+  stopHandoffSendPolling();
+  state.handoffSend = { intent: null, signature: null, busy: false, polling: null };
+  $('#handoffSendRecipient').value = '';
+  $('#handoffSendAmount').value = '10.00';
+  $('#handoffSendChooseStatus').textContent = '';
+  $('#handoffSendReviewStatus').textContent = '';
+  $('#handoffSendLimit').textContent = `Maximum $${Number(state.features.handoffTransfers.maximumPerTransferUsdc || 25).toFixed(2)} per transfer.`;
+  showHandoffSendStep('choose');
+  openModal('handoffSendModal');
+  $('#handoffSendRecipient').focus();
+}
+
+function setHandoffSendBusy(button, busy, label) {
+  state.handoffSend.busy = busy;
+  button.disabled = busy;
+  if (label) button.innerHTML = label;
+}
+
+async function prepareHandoffSend() {
+  const recipientHandle = $('#handoffSendRecipient').value.trim();
+  const amount = $('#handoffSendAmount').value.trim();
+  const button = $('#prepareHandoffSend');
+  setHandoffSendBusy(button, true, 'Preparing…');
+  $('#handoffSendChooseStatus').textContent = '';
+  try {
+    const intent = await apiFetch('/api/handoff-transfers/intent', {
+      method: 'POST', body: { recipientHandle, amount }
+    });
+    state.handoffSend.intent = intent;
+    state.handoffSend.signature = null;
+    $('#handoffSendReviewAmount').textContent = `$${intent.amount} ${intent.asset}`;
+    $('#handoffSendReviewRecipient').textContent = `${intent.recipient.displayName} · @${intent.recipient.username}`;
+    $('#handoffSendReviewStatus').textContent = '';
+    showHandoffSendStep('review');
+  } catch (error) {
+    if (error.status === 401) return expireSession();
+    $('#handoffSendChooseStatus').textContent = error.message || 'We could not prepare this transfer.';
+  } finally {
+    setHandoffSendBusy(button, false, 'Review transfer <span>→</span>');
+  }
+}
+
+function showHandoffSendProgress(copy = 'We are checking that the exact amount arrives.') {
+  $('#handoffSendProgressTitle').textContent = 'Confirming your transfer…';
+  $('#handoffSendProgressCopy').textContent = copy;
+  $('#retryHandoffSend').hidden = true;
+  showHandoffSendStep('progress');
+}
+
+function showHandoffSendRetry(message) {
+  $('#handoffSendProgressTitle').textContent = 'Your transfer needs another try.';
+  $('#handoffSendProgressCopy').textContent = message || 'No money has been marked as sent.';
+  $('#retryHandoffSend').hidden = false;
+  showHandoffSendStep('progress');
+}
+
+function applyHandoffSendStatus(transfer) {
+  if (!transfer) return;
+  if (transfer.status === 'settled') {
+    stopHandoffSendPolling();
+    $('#handoffSendDoneCopy').textContent = `$${transfer.amount} USDC was sent to @${transfer.recipient.username} and confirmed.`;
+    showHandoffSendStep('done');
+    refreshPortfolio();
+    return;
+  }
+  if (transfer.final) {
+    stopHandoffSendPolling();
+    showHandoffSendRetry(transfer.message || 'This transfer could not be completed.');
+    return;
+  }
+  showHandoffSendProgress(transfer.message || 'We are checking that the exact amount arrives.');
+  pollHandoffSendStatus();
+}
+
+function pollHandoffSendStatus() {
+  stopHandoffSendPolling();
+  const transferId = state.handoffSend.intent?.transferId;
+  if (!transferId) return;
+  state.handoffSend.polling = setTimeout(async () => {
+    try {
+      const transfer = await apiFetch(`/api/handoff-transfers/${encodeURIComponent(transferId)}`);
+      applyHandoffSendStatus(transfer);
+    } catch (error) {
+      if (error.status === 401) return expireSession();
+      // A temporary connection issue must not turn a still-broadcast transfer into a false failure.
+      showHandoffSendProgress('Still confirming your transfer. Keep this page open and we will update it.');
+      pollHandoffSendStatus();
+    }
+  }, 2500);
+}
+
+async function confirmHandoffSend() {
+  const intent = state.handoffSend.intent;
+  if (!intent?.transferId || !intent.authorization) return showHandoffSendStep('choose');
+  const button = $('#confirmHandoffSend');
+  setHandoffSendBusy(button, true, 'Confirming securely…');
+  $('#handoffSendReviewStatus').textContent = '';
+  try {
+    // The exact, server-generated typed message is signed by Dynamic. No amount, recipient, or
+    // account detail from the page is accepted by the server when it receives the signature.
+    const signature = state.handoffSend.signature || await window.HandoffDynamic?.signTransferAuthorization?.(intent.authorization);
+    if (!signature) throw new Error('Your secure payment account could not confirm this transfer.');
+    state.handoffSend.signature = signature;
+    showHandoffSendProgress('Sending your confirmed transfer…');
+    const transfer = await apiFetch(`/api/handoff-transfers/${encodeURIComponent(intent.transferId)}/authorization`, {
+      method: 'POST', body: { signature }
+    });
+    applyHandoffSendStatus(transfer);
+  } catch (error) {
+    if (error.status === 401) return expireSession();
+    if (error?.code === 4001 || /rejected|declined/i.test(error?.message || '')) {
+      $('#handoffSendReviewStatus').textContent = 'You did not confirm this transfer. Nothing was sent.';
+      showHandoffSendStep('review');
+    } else {
+      showHandoffSendRetry(error.message || 'We could not send this transfer yet.');
+    }
+  } finally {
+    setHandoffSendBusy(button, false, 'Confirm and send <span>→</span>');
+  }
+}
+
 async function initialiseDynamic() {
   try {
     const response = await fetch('/api/public-config');
     if (!response.ok) throw new Error('Unable to load public sign-in configuration.');
     const runtime = await response.json();
     applyPaymentConfig(runtime.payments);
+    state.features.handoffTransfers = {
+      available: Boolean(runtime.handoffTransfers?.available),
+      maximumPerTransferUsdc: Number(runtime.handoffTransfers?.maximumPerTransferUsdc || 25)
+    };
+    renderHandoffSendAvailability();
     if (!runtime.dynamic?.enabled) {
       setAuthStatus('Secure sign-in is not configured for this deployment yet.');
       return;
@@ -1284,9 +1443,13 @@ function bindEvents() {
   $('#copyPaymentQrLink').addEventListener('click', copyPaymentQrLink);
   $('#downloadPaymentQr').addEventListener('click', downloadPaymentQr);
   $('#downloadPaymentPoster').addEventListener('click', downloadPaymentPoster);
-  // The sender flow is reachable from public /@username pages. Keep this legacy trigger inert and
-  // hidden in the recipient dashboard so it never adds crypto language or choices there.
-  $('#sendFromBalance').addEventListener('click', openPay);
+  // A signed-in Handoff recipient can send an exact amount to another canonical Handoff username.
+  // External-wallet checkout remains available only from public /@username pages.
+  $('#sendFromBalance').addEventListener('click', openHandoffSend);
+  $('#prepareHandoffSend').addEventListener('click', prepareHandoffSend);
+  $('#handoffSendBack').addEventListener('click', () => showHandoffSendStep('choose'));
+  $('#confirmHandoffSend').addEventListener('click', confirmHandoffSend);
+  $('#retryHandoffSend').addEventListener('click', confirmHandoffSend);
   $('#openIdentity').addEventListener('click', () => state.auth.profile ? goTo('identity') : openAuthFlow());
   $('#toggleBalance').addEventListener('click', () => { state.balanceVisible = !state.balanceVisible; renderIdentity(); });
   $('#copyHandle').addEventListener('click', () => state.auth.profile ? copyText(`@${state.auth.profile.username}`, 'Handoff username copied') : openAuthFlow());
@@ -1343,6 +1506,7 @@ function init() {
   }
   renderActivity();
   renderIdentity();
+  renderHandoffSendAvailability();
   renderRecipientProof();
   renderRails();
   renderNetworkPicker();
