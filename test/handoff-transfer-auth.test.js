@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { encodeFunctionData } = require('viem');
+const { encodeFunctionData, hashDomain } = require('viem');
 const { privateKeyToAccount } = require('viem/accounts');
 const {
   USDC_EIP3009_DOMAIN,
@@ -30,12 +30,32 @@ function authorizationInput() {
 
 test('a Handoff transfer authorization is a short-lived, Monad-USDC EIP-3009 message', () => {
   const typed = typedAuthorization(authorizationInput());
+  // Monad USDC's live DOMAIN_SEPARATOR is for EIP-712 name "USDC", version "2".
+  // Signing Circle's more common "USD Coin" domain recovers locally but reverts on Monad.
+  assert.equal(USDC_EIP3009_DOMAIN.name, 'USDC');
+  assert.equal(USDC_EIP3009_DOMAIN.version, '2');
   assert.deepEqual(typed.domain, USDC_EIP3009_DOMAIN);
   assert.equal(typed.primaryType, 'TransferWithAuthorization');
   assert.equal(typed.message.value, '1250000');
   assert.match(typed.message.nonce, /^0x[0-9a-f]{64}$/);
   assert.equal(isAuthorizationLive(typed.message), true);
   assert.equal(Object.keys(typed.types).join(','), 'TransferWithAuthorization');
+});
+
+test('Monad USDC authorization domain matches the deployed contract domain separator', () => {
+  // eth_call DOMAIN_SEPARATOR() on Monad USDC, checked 2026-10-12.
+  const separator = hashDomain({
+    domain: USDC_EIP3009_DOMAIN,
+    types: {
+      EIP712Domain: [
+        { name: 'name', type: 'string' },
+        { name: 'version', type: 'string' },
+        { name: 'chainId', type: 'uint256' },
+        { name: 'verifyingContract', type: 'address' }
+      ]
+    }
+  });
+  assert.equal(separator, '0xfe22123edc0dd4aeb912eb7948c5f0e531592c2053b3067612f427db342c93c6');
 });
 
 test('the recovered signer must be the authenticated sender, not merely any valid signature', async () => {

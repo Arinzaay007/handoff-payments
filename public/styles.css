@@ -649,3 +649,60 @@ body.public-mode .public-card { max-width: 474px; padding: 41px 34px 34px; borde
   .mobile-drawer-backdrop.visible { opacity: 1; pointer-events: auto; }
   .sidebar .brand { padding-right: 54px; }
 }
+
+/* --------------------------------------------------------------------------
+   Fluid small-screen guard
+   Keep the product inside the device viewport — including narrow Android
+   layouts, split-screen use, and text-size changes — rather than preserving a
+   desktop minimum width. This intentionally follows the mobile refinement so
+   it wins over the original desktop-first measurements above.
+   -------------------------------------------------------------------------- */
+html, body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+body { min-width: 0; }
+.app-shell, .main-content, .page, .balance-grid, .content-split, .identity-layout { min-width: 0; }
+img, svg, canvas { max-width: 100%; }
+
+@media (max-width: 780px) {
+  .main-content { width: 100%; }
+  .balance-actions, .handle-box, .activity-item, .panel-head, .handoff-send-summary > div { min-width: 0; }
+  .handle-box > :not(.handle-avatar):not(.copy-small), .activity-main { min-width: 0; }
+  .modal {
+    max-height: calc(100dvh - env(safe-area-inset-top));
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 360px) {
+  .main-content { padding-right: 12px; padding-left: 12px; }
+  .signal-strip { margin-right: -12px; margin-left: -12px; padding-right: 12px; padding-left: 12px; }
+  .topbar { gap: 7px; }
+  .top-actions { gap: 5px; }
+  .balance-card, .identity-card { padding: 18px; }
+  .balance-amount { font-size: clamp(46px, 16.5vw, 55px); }
+  .handle-box { gap: 8px; margin-top: 25px; padding: 9px; }
+  .handle-box span { max-width: 108px; }
+  .copy-small { padding: 7px; font-size: 9px; }
+  .mobile-bottom-nav { right: 7px; left: 7px; border-radius: 20px; }
+  .mobile-nav-item { padding-right: 1px; padding-left: 1px; }
+  .mobile-nav-item b { font-size: 8px; }
+  .modal { padding-right: 16px; padding-left: 16px; }
+  .modal h2 { font-size: clamp(24px, 8vw, 29px); }
+}
+
+@media (max-width: 320px) {
+  .balance-actions { grid-template-columns: minmax(0, 1fr); }
+  .balance-actions .button-send, .balance-actions .button-quiet, .balance-actions .button-light {
+    grid-column: auto;
+    grid-row: auto;
+  }
+  .balance-actions .button { width: 100%; }
+  .identity-top h2 { max-width: 185px; font-size: 21px; }
+  .handle-box span { max-width: 88px; }
+  .share-page-card, .activity-panel, .aliases-panel { padding: 17px; }
+}
