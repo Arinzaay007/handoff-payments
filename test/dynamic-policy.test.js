@@ -27,6 +27,7 @@ test('social providers are filtered out in code for recipient onboarding', () =>
 test('settings use connect-and-sign so Dynamic issues a verified-credential JWT', () => {
   const settings = buildDynamicSettings({ environmentId: 'env-1', connectors: [() => []] });
   assert.equal(settings.initialAuthenticationMode, 'connect-and-sign');
+  assert.deepEqual(settings.transactionConfirmation, { required: false }, 'Handoff owns the plain-language review while Dynamic supplies native passkey approval');
   assert.equal(settings.debugError, false);
 });
 

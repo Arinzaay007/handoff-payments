@@ -40,6 +40,11 @@ function buildDynamicSettings({ environmentId, connectors }) {
     walletConnectors: connectors,
     initialAuthenticationMode: 'connect-and-sign',
     socialProvidersFilter: NO_SOCIAL_PROVIDERS,
+    // Handoff owns the payment-review surface. Do not force Dynamic's generic embedded-wallet
+    // action screen; an individual payment still needs the user's passkey/MFA approval when
+    // the embedded account authorizes it. The Dynamic dashboard must also keep its generic
+    // embedded-wallet action UI disabled for this environment.
+    transactionConfirmation: { required: false },
     overrides: {
       views: [PASSKEY_FIRST_LOGIN_VIEW]
     },
