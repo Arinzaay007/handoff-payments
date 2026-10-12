@@ -101,10 +101,24 @@ function closeModals() {
   $$('.modal.visible').forEach(modal => { modal.classList.remove('visible'); modal.setAttribute('aria-hidden', 'true'); });
   stopHandoffSendPolling?.();
 }
+function closeMobileDrawer() {
+  $('.sidebar')?.classList.remove('open');
+  $('#mobileDrawerBackdrop')?.classList.remove('visible');
+}
+function toggleMobileDrawer() {
+  const drawer = $('.sidebar');
+  const backdrop = $('#mobileDrawerBackdrop');
+  if (!drawer || !backdrop) return;
+  const opening = !drawer.classList.contains('open');
+  drawer.classList.toggle('open', opening);
+  backdrop.classList.toggle('visible', opening);
+}
 function goTo(page) {
   $$('.page').forEach(el => el.classList.remove('active'));
   $(`#${page}Page`).classList.add('active');
-  $$('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+  $$('.nav-item, .mobile-nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+  // Bottom navigation is touch-first; close the optional side drawer after a mobile selection.
+  closeMobileDrawer();
   const labels = {
     overview: ['PAYMENTS', 'Get paid, simply.'],
     'get-paid': ['GET PAID', 'Share your payment page'],
@@ -1426,7 +1440,7 @@ async function signOut() {
 }
 
 function bindEvents() {
-  $$('.nav-item').forEach(item => item.addEventListener('click', () => goTo(item.dataset.page)));
+  $$('.nav-item, .mobile-nav-item').forEach(item => item.addEventListener('click', () => goTo(item.dataset.page)));
   $$('[data-go]').forEach(item => item.addEventListener('click', () => goTo(item.dataset.go)));
   const sharePaymentPage = () => state.auth.profile ? copyText(canonicalPaymentUrl(state.auth.profile.username), 'Payment page copied') : openAuthFlow();
   $('#quickRequest').addEventListener('click', sharePaymentPage);
@@ -1467,7 +1481,12 @@ function bindEvents() {
   $('#authButton').addEventListener('click', () => state.auth.signedIn ? signOut() : openAuthFlow());
   $('#openSecurity').addEventListener('click', () => toast('Handoff keeps getting paid simple: sign in securely and share your username.'));
   $('#openNotifications').addEventListener('click', () => toast('Payment updates appear here after they are confirmed.'));
-  $('#mobileMenu').addEventListener('click', () => $('.sidebar').classList.toggle('open'));
+  $('#mobileMenu').addEventListener('click', toggleMobileDrawer);
+  $('#closeMobileMenu').addEventListener('click', closeMobileDrawer);
+  $('#mobileDrawerBackdrop').addEventListener('click', closeMobileDrawer);
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeMobileDrawer();
+  });
   $('#modalBackdrop').addEventListener('click', closeModals);
   $$('[data-close]').forEach(button => button.addEventListener('click', closeModals));
   $('#toNetworks').addEventListener('click', async () => {

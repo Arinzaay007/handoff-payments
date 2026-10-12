@@ -413,3 +413,239 @@ body.public-mode .public-card { max-width: 474px; padding: 41px 34px 34px; borde
   .share-page-card, .activity-panel, .aliases-panel { padding: 23px; }
   .public-card h1 { font-size: 31px; }
 }
+
+
+/* --------------------------------------------------------------------------
+   Mobile-first refinement
+   The small-screen experience is a complete navigation and interaction mode,
+   not a reduced desktop canvas. Targets retain 44px+ hit areas and dialogs
+   become reachable bottom sheets above the persistent tab bar.
+   -------------------------------------------------------------------------- */
+.mobile-bottom-nav { display: none; }
+
+@media (max-width: 780px) {
+  html, body { min-height: 100dvh; }
+  body { overscroll-behavior-y: none; }
+  .app-shell { min-height: 100dvh; }
+  .main-content {
+    padding: 0 17px calc(104px + env(safe-area-inset-bottom));
+  }
+  .signal-strip {
+    height: 29px;
+    gap: 7px;
+    font-size: 8px;
+    letter-spacing: .08em;
+  }
+  .signal-strip i, .signal-strip > span:nth-of-type(n + 3) { display: none; }
+  .topbar { min-height: 89px; align-items: center; gap: 10px; }
+  .crumb { min-width: 0; flex: 1; }
+  .crumb #pageEyebrow { font-size: 8px; }
+  .crumb h1 { overflow: hidden; margin-top: 6px; font-size: clamp(25px, 8vw, 33px); text-overflow: ellipsis; white-space: nowrap; }
+  .top-actions { gap: 7px; }
+  .top-actions #authButton { min-width: 44px; padding: 0 12px; font-size: 0; }
+  .top-actions #authButton span { font-size: 17px; }
+  .mobile-menu { width: 42px; height: 42px; border-radius: 13px; }
+
+  .sidebar {
+    z-index: 42;
+    top: 0;
+    width: min(82vw, 300px);
+    height: 100dvh;
+    padding-top: calc(25px + env(safe-area-inset-top));
+    border-radius: 0 25px 25px 0;
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-foot { padding-bottom: env(safe-area-inset-bottom); }
+
+  .balance-grid, .content-split, .identity-layout { gap: 14px; }
+  .balance-card {
+    min-height: 270px;
+    padding: 24px;
+    border-radius: 25px;
+  }
+  .balance-card:before { inset: 10px; border-radius: 18px; }
+  .balance-head { font-size: 11px; }
+  .balance-amount { margin-top: 29px; font-size: clamp(54px, 17vw, 71px); }
+  .balance-sub { margin-top: 12px; font-size: 11px; line-height: 1.4; }
+  .balance-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 20px; }
+  .balance-actions .button { min-width: 0; min-height: 46px; padding: 0 10px; font-size: 11px; }
+  .balance-actions .button-send { grid-column: 1 / -1; order: -2; background: #ff9b7d; color: #4d251e; }
+  .balance-actions .button-quiet { grid-column: 2; grid-row: 2; }
+  .balance-actions .button-light { grid-column: 1; grid-row: 2; }
+  .card-shine { width: 245px; height: 245px; right: -92px; bottom: -112px; }
+
+  .identity-card { min-height: 236px; padding: 24px; border-radius: 25px; }
+  .identity-top h2 { max-width: 220px; font-size: 25px; }
+  .handle-box { margin-top: 31px; padding: 11px; }
+  .handle-box span { max-width: 175px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .copy-small { flex: none; }
+
+  .content-split { margin-top: 14px; }
+  .panel { border-radius: 20px; }
+  .activity-panel, .aliases-panel { padding: 20px; }
+  .panel-head h2 { font-size: 21px; }
+  .activity-item { min-height: 61px; padding: 11px 0; gap: 9px; }
+  .activity-icon { width: 36px; height: 36px; border-radius: 12px; }
+  .activity-main b, .activity-right b { font-size: 11px; }
+  .activity-main span, .activity-right span { font-size: 9px; }
+  .request-panel { min-height: 271px; padding: 24px; }
+  .request-art { height: 70px; margin-bottom: 12px; }
+  .request-panel h2 { font-size: 26px; }
+  .request-panel p { font-size: 12px; }
+
+  .wide-intro { padding: 7px 1px 23px; }
+  .wide-intro h2 { font-size: clamp(32px, 10vw, 43px); }
+  .wide-intro p { max-width: 330px; font-size: 13px; }
+  .share-page-card { min-height: 0; padding: 25px 21px; }
+  .share-page-card h2 { max-width: 300px; font-size: 30px; }
+  .share-page-actions { display: grid; grid-template-columns: 1fr; }
+  .share-page-actions .button { width: 100%; }
+  .share-page-link { margin: 17px 0 12px; }
+  .profile-card { padding-right: 18px; padding-left: 18px; }
+  .profile-cover { margin-right: -18px; margin-left: -18px; }
+  .profile-actions { grid-template-columns: 1fr; }
+  .activity-page-list { padding: 8px 20px; }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    z-index: 38;
+    right: 11px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    left: 11px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    min-height: 66px;
+    padding: 5px;
+    border: 1px solid rgba(255,255,255,.52);
+    border-radius: 23px;
+    background: rgba(37, 37, 44, .95);
+    box-shadow: 0 17px 43px rgba(35, 29, 34, .27);
+    backdrop-filter: blur(18px);
+  }
+  .mobile-nav-item {
+    display: grid;
+    min-width: 0;
+    min-height: 54px;
+    padding: 5px 3px 4px;
+    place-items: center;
+    gap: 2px;
+    border: 0;
+    border-radius: 17px;
+    background: transparent;
+    color: #aeadb6;
+  }
+  .mobile-nav-item span { font-size: 19px; line-height: 1; }
+  .mobile-nav-item b { overflow: hidden; max-width: 100%; font-size: 9px; font-weight: 800; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-nav-item.active { background: #ff9778; color: #48231d; }
+  .mobile-nav-item:focus-visible { outline-color: #fff; outline-offset: -4px; }
+
+  .modal-backdrop { z-index: 50; }
+  .modal {
+    z-index: 51;
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    max-width: none;
+    max-height: min(82dvh, 760px);
+    padding: 27px 20px calc(21px + env(safe-area-inset-bottom));
+    border: 0;
+    border-radius: 27px 27px 0 0;
+    transform: translateY(104%);
+  }
+  .modal:before {
+    content: '';
+    display: block;
+    width: 38px;
+    height: 4px;
+    margin: -14px auto 19px;
+    border-radius: 999px;
+    background: #ded4cd;
+  }
+  .modal.visible { transform: translateY(0); }
+  .modal-close { top: 16px; right: 17px; width: 36px; height: 36px; }
+  .modal h2 { max-width: calc(100% - 35px); font-size: clamp(27px, 8vw, 33px); }
+  .modal label { margin: 15px 0; }
+  .modal input, .withdraw-demo-modal select { height: 48px; font-size: 16px; }
+  .amount-input { height: 60px; }
+  .amount-input input { font-size: 29px; }
+  .recipient-proof { padding: 11px; }
+  .network-picker { grid-template-columns: 1fr 1fr; gap: 8px; margin: 15px 0; }
+  .network-option { min-height: 59px; padding: 10px; }
+  .quote-card { padding: 14px; }.quote-details { margin: 11px 0; }
+  .qr-image-frame { width: min(66vw, 248px); height: min(66vw, 248px); }
+  .qr-payment-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .qr-payment-actions .button:first-child { grid-column: 1 / -1; }
+  .withdraw-demo-modal .modal-description { margin-bottom: 15px; }
+  .handoff-send-summary { margin: 15px 0 12px; }
+  .handoff-send-summary b { max-width: 66%; }
+
+  body.public-mode .mobile-bottom-nav { display: none; }
+  body.public-mode .public-page { min-height: 100dvh; align-items: center; padding: 76px 17px 28px; }
+  body.public-mode .public-page:before { top: calc(22px + env(safe-area-inset-top)); left: 20px; font-size: 25px; }
+  body.public-mode .public-card { padding: 31px 22px 24px; border-radius: 27px; }
+  .public-card .profile-avatar { width: 70px; height: 70px; margin-top: 19px; border-radius: 23px; }
+  .public-card h1 { font-size: 30px; }
+  .public-copy { font-size: 12px; }
+  .toast { z-index: 60; bottom: calc(91px + env(safe-area-inset-bottom)); max-width: calc(100vw - 28px); text-align: center; }
+}
+
+@media (max-width: 380px) {
+  .topbar { min-height: 82px; }
+  .crumb h1 { font-size: 25px; }
+  .balance-card { min-height: 260px; padding: 21px; }
+  .balance-amount { font-size: 53px; }
+  .balance-actions .button { font-size: 10px; }
+  .identity-card { min-height: 225px; padding: 21px; }
+  .identity-top h2 { font-size: 23px; }
+  .handle-box span { max-width: 142px; }
+  .network-picker { grid-template-columns: 1fr; }
+  .qr-payment-actions { grid-template-columns: 1fr; }
+  .qr-payment-actions .button:first-child { grid-column: auto; }
+}
+
+@media (min-width: 781px) and (max-width: 1050px) {
+  .mobile-bottom-nav { display: none; }
+}
+
+@media (max-height: 660px) and (max-width: 780px) {
+  .modal { max-height: 89dvh; padding-top: 22px; }
+  .modal:before { margin-bottom: 12px; }
+  .modal h2 { margin: 6px 0; font-size: 27px; }
+  .modal-description { margin: 7px 0 12px; }
+}
+
+
+/* Mobile drawer dismissal: a visible close target plus an inert tap-outside layer. */
+.mobile-drawer-close, .mobile-drawer-backdrop { display: none; }
+
+@media (max-width: 780px) {
+  .mobile-drawer-close {
+    position: absolute;
+    top: calc(18px + env(safe-area-inset-top));
+    right: 15px;
+    display: grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 14px;
+    background: rgba(255,255,255,.09);
+    color: #fffaf7;
+    font-size: 27px;
+    line-height: 1;
+  }
+  .mobile-drawer-close:active { background: rgba(255,255,255,.18); }
+  .mobile-drawer-backdrop {
+    position: fixed;
+    z-index: 41;
+    inset: 0;
+    display: block;
+    border: 0;
+    background: rgba(24,22,28,.38);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s ease;
+  }
+  .mobile-drawer-backdrop.visible { opacity: 1; pointer-events: auto; }
+  .sidebar .brand { padding-right: 54px; }
+}

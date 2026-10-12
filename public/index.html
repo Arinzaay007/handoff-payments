@@ -13,6 +13,7 @@
   <div class="app-shell">
     <aside class="sidebar" aria-label="Main navigation">
       <div class="brand"><span class="brand-mark" aria-hidden="true"><span></span><span></span></span><span>handoff</span></div>
+      <button class="mobile-drawer-close" id="closeMobileMenu" aria-label="Close menu">×</button>
       <div class="network-pill"><i></i> Payments ready</div>
       <nav class="nav" aria-label="App pages">
         <button class="nav-item active" data-page="overview"><span class="nav-icon">⌂</span>Overview</button>
@@ -25,6 +26,7 @@
         <button id="profileButton" class="profile-mini"><span id="profileMiniAvatar" class="avatar gradient-avatar">H</span><span><b id="profileMiniName">Get started with Handoff</b><small id="profileMiniHandle">Create your payment name</small></span><span class="more">•••</span></button>
       </div>
     </aside>
+    <button class="mobile-drawer-backdrop" id="mobileDrawerBackdrop" aria-label="Close menu" tabindex="-1"></button>
 
     <main class="main-content">
       <div class="signal-strip" aria-label="Service status"><span class="signal-live">LIVE</span><span>SECURE PAYMENTS</span><i></i><span>SHARE YOUR USERNAME</span><i></i><span>GET PAID</span></div>
@@ -73,6 +75,13 @@
       </section>
     </main>
   </div>
+
+  <nav class="mobile-bottom-nav" aria-label="Mobile navigation">
+    <button class="mobile-nav-item active" data-page="overview" aria-label="Overview"><span aria-hidden="true">⌂</span><b>Home</b></button>
+    <button class="mobile-nav-item" data-page="get-paid" aria-label="Get paid"><span aria-hidden="true">↙</span><b>Get paid</b></button>
+    <button class="mobile-nav-item" data-page="activity" aria-label="Activity"><span aria-hidden="true">◷</span><b>Activity</b></button>
+    <button class="mobile-nav-item" data-page="identity" aria-label="Payment name"><span aria-hidden="true">◉</span><b>Profile</b></button>
+  </nav>
 
   <section class="public-page" id="publicPage" aria-labelledby="publicName">
     <article class="panel public-card">
