@@ -146,3 +146,24 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 @media (max-width: 450px) {
   .profile-actions { grid-template-columns: 1fr; }
 }
+
+/* Bank withdrawal preview: deliberately non-transactional until a regulated payout partner is live. */
+.button-quiet { border-color: rgba(255,255,255,.25); background: rgba(255,255,255,.08); color: #f6f8ee; }
+.button-quiet:hover { border-color: rgba(217,255,99,.72); background: rgba(255,255,255,.15); color: #fff; }
+.demo-pill, .demo-banner { display: inline-flex; align-items: center; border-radius: 99px; font: 700 8px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.demo-pill { padding: 4px 5px; background: rgba(255,255,255,.16); color: #e9f7c8; }
+.demo-banner { margin: 4px 0 4px; padding: 6px 8px; background: #fff1cf; color: #9b6715; }
+.withdraw-demo-modal .modal-description { max-width: 382px; }
+.withdraw-demo-modal select { width: 100%; height: 43px; margin-top: 7px; padding: 0 12px; border: 1px solid #dbddd3; border-radius: 11px; background: #fcfcf7; color: var(--ink); font-size: 13px; outline: none; }
+.withdraw-demo-modal select:focus { border-color: #a9c967; background: #fff; }
+.demo-help { margin: -6px 0 18px; color: #878d83; font-size: 10px; line-height: 1.5; }
+.withdraw-demo-summary { margin: 18px 0 12px; padding: 4px 15px; border: 1px solid #ece5ce; border-radius: 15px; background: #fffaf0; }
+.withdraw-demo-summary > div { display: flex; justify-content: space-between; gap: 15px; padding: 12px 0; border-top: 1px solid #efe8d8; color: #787866; font-size: 11px; }
+.withdraw-demo-summary > div:first-child { border-top: 0; }
+.withdraw-demo-summary b { color: #293322; font: 700 12px var(--mono); }
+.withdraw-demo-summary .withdraw-demo-total { margin: 0 -15px; padding: 14px 15px; border-color: #d9e8b8; background: #f1fadf; color: #50651d; }
+.withdraw-demo-summary .withdraw-demo-total b { color: #405b0f; font-size: 14px; }
+
+@media (max-width: 450px) {
+  .balance-actions .button-quiet { width: 100%; }
+}
