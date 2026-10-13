@@ -14,6 +14,7 @@ const { buildExecutionPlan } = require('./executionPlan');
 const policy = require('./paymentPolicy');
 const { receiptStateForRelayStatus, nextReceiptState, isFinal, publicReceipt, FAILURE_MESSAGES } = require('./paymentStatus');
 const { verifyMonadSettlement } = require('./monadSettlement');
+const paymentRequests = require('./paymentRequestService');
 
 const QUOTE_TTL_MS = 5 * 60 * 1000;
 const REFRESH_MIN_INTERVAL_MS = 2000;
@@ -43,6 +44,11 @@ function mapDatabaseError(error) {
   const message = String(error?.message || '');
   if (message === 'DAILY_CAP_EXCEEDED') return policy.dailyCapError(limits().dailyMinor);
   if (message === 'PER_PAYMENT_CAP_EXCEEDED') return serviceError(`A single payment can be at most ${policy.formatUsdc(limits().perPaymentMinor)} USDC.`, 'PER_PAYMENT_CAP_EXCEEDED');
+  if (message === 'REQUEST_NOT_FOUND') return serviceError('Payment request not found.', 'REQUEST_NOT_FOUND', 404);
+  if (message === 'REQUEST_EXPIRED') return serviceError('This payment request has expired.', 'REQUEST_EXPIRED', 409);
+  if (message === 'REQUEST_NOT_ACTIVE') return serviceError('This payment request is no longer available.', 'REQUEST_NOT_ACTIVE', 409);
+  if (message === 'REQUEST_AMOUNT_MISMATCH' || message === 'REQUEST_RECIPIENT_MISMATCH') return serviceError('This payment request must be paid using its original amount and Handoff name.', 'REQUEST_TERMS_MISMATCH', 409);
+  if (message === 'REQUEST_PAYMENT_IN_PROGRESS') return serviceError('A payment for this request is already in progress. Check its receipt before trying again.', 'REQUEST_PAYMENT_IN_PROGRESS', 409);
   if (error?.details?.code === 'PGRST202' || error?.details?.code === '42883') {
     console.error('Handoff: payment migration 0003 is not applied (reserve_payment_attempt missing).');
     return serviceError('Payments are temporarily unavailable.', 'PAYMENTS_UNAVAILABLE', 503);
@@ -88,13 +94,13 @@ function publicQuoteSummary(plan, network) {
  * Returns either an executable quote (with validated transaction steps the payer must sign) or a
  * "Quote preview only" result with no steps. Nothing is persisted for a preview.
  */
-async function createPaymentQuote({ payer, sourceNetwork, recipientHandle, amount }) {
+async function createPaymentQuote({ payer, sourceNetwork, recipientHandle, amount, paymentRequestId }) {
   if (!PAYER_RE.test(String(payer || ''))) throw serviceError('Connect an EVM wallet to get a quote.', 'PAYER_INVALID');
   const network = requireLiveSourceNetwork(sourceNetwork);
   const payerLower = payer.toLowerCase();
   // The caller's amount is the recipient's required Monad-USDC output. Payer caps are checked
   // only after Relay has quoted the actual origin-USDC input needed to make that output exact.
-  const requestedDestinationMinor = policy.parseUsdcAmount(amount);
+  let requestedDestinationMinor = policy.parseUsdcAmount(amount);
 
   // The recipient is resolved here, from the username only. No wallet can be supplied by the caller.
   let handle;
@@ -103,8 +109,20 @@ async function createPaymentQuote({ payer, sourceNetwork, recipientHandle, amoun
   } catch (error) {
     throw serviceError(error.message, 'RECIPIENT_INVALID', 400);
   }
-  const recipient = await resolveUsername(handle);
+  let recipient = await resolveUsername(handle);
   if (!recipient) throw serviceError('This Handoff username is not registered.', 'RECIPIENT_NOT_FOUND', 404);
+
+  // A request ID is a server-resolved, immutable instruction: the browser cannot change its
+  // amount or destination while retaining the request's receipt linkage.
+  let paymentRequest = null;
+  if (paymentRequestId !== undefined && paymentRequestId !== null) {
+    paymentRequest = await paymentRequests.quoteBinding(paymentRequestId);
+    if (paymentRequest.recipient.username.toLowerCase() !== handle || paymentRequest.amountMinor !== requestedDestinationMinor.toString()) {
+      throw serviceError('This payment request must be paid to its original Handoff name for its exact amount.', 'REQUEST_TERMS_MISMATCH', 409);
+    }
+    recipient = paymentRequest.recipient;
+    requestedDestinationMinor = BigInt(paymentRequest.amountMinor);
+  }
 
   const chains = await relay.getChains();
   const origin = relay.findChain(chains, network.chainId);
@@ -184,24 +202,25 @@ async function createPaymentQuote({ payer, sourceNetwork, recipientHandle, amoun
   const expiresAt = new Date(Date.now() + QUOTE_TTL_MS).toISOString();
   let row;
   try {
-    row = firstRow(await request('rpc/reserve_payment_attempt', {
+    const reservation = {
+      p_payer_address: payerLower,
+      p_recipient_profile_id: recipient.profileId,
+      p_recipient_wallet_id: recipient.walletId,
+      p_source_chain_id: network.chainId,
+      p_source_currency: originUsdc.address.toLowerCase(),
+      // Source amount is Relay's signed payer debit. It drives all cap accounting.
+      p_source_amount: plan.sourceAmountMinor,
+      p_requested_destination_amount: plan.requestedDestinationMinor,
+      p_quoted_route_fee_amount: plan.routeFeeMinor,
+      p_minimum_destination_amount: plan.minimumDestinationMinor,
+      p_relay_request_id: plan.requestId,
+      p_quote_expires_at: expiresAt,
+      p_per_payment_cap: limits().perPaymentMinor.toString(),
+      p_daily_cap: limits().dailyMinor.toString()
+    };
+    row = firstRow(await request(paymentRequest ? 'rpc/reserve_payment_request_attempt' : 'rpc/reserve_payment_attempt', {
       method: 'POST',
-      body: {
-        p_payer_address: payerLower,
-        p_recipient_profile_id: recipient.profileId,
-        p_recipient_wallet_id: recipient.walletId,
-        p_source_chain_id: network.chainId,
-        p_source_currency: originUsdc.address.toLowerCase(),
-        // Source amount is Relay's signed payer debit. It drives all cap accounting.
-        p_source_amount: plan.sourceAmountMinor,
-        p_requested_destination_amount: plan.requestedDestinationMinor,
-        p_quoted_route_fee_amount: plan.routeFeeMinor,
-        p_minimum_destination_amount: plan.minimumDestinationMinor,
-        p_relay_request_id: plan.requestId,
-        p_quote_expires_at: expiresAt,
-        p_per_payment_cap: limits().perPaymentMinor.toString(),
-        p_daily_cap: limits().dailyMinor.toString()
-      }
+      body: paymentRequest ? { p_payment_request_public_id: paymentRequest.id, ...reservation } : reservation
     }));
   } catch (error) {
     throw mapDatabaseError(error);

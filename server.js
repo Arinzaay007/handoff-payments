@@ -14,9 +14,11 @@ const payments = require('./src/paymentService');
 const { formatUsdc } = require('./src/paymentPolicy');
 const handoffTransfers = require('./src/handoffTransferService');
 const { getDisplayRates } = require('./src/displayRates');
+const paymentRequests = require('./src/paymentRequestService');
 
 const root = path.join(__dirname, 'public');
 const PAYMENT_PAGE_PATH = /^\/@([^/]+)\/?$/;
+const RECEIPT_PAGE_PATH = /^\/receipts\/([0-9a-fA-F-]{36})\/?$/;
 const PAYMENT_ID_PATH = /^\/api\/payments\/([0-9a-fA-F-]{36})(\/awaiting-signature|\/source-transaction)?$/;
 const HANDOFF_TRANSFER_PATH = /^\/api\/handoff-transfers\/([0-9a-fA-F-]{36})(\/authorization)?$/;
 const port = Number(process.env.PORT || 3000);
@@ -129,6 +131,36 @@ async function servePaymentPage(req, res, rawHandle) {
   return send(res, 200, req.method === 'HEAD' ? '' : shell, 'text/html; charset=utf-8');
 }
 
+function receiptPage(paymentId) {
+  // paymentId is accepted only after RECEIPT_PAGE_PATH matched a UUID-shaped value. The actual
+  // receipt is fetched again from the safe receipt API; no wallet or provider data is embedded.
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <title>Handoff payment receipt</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="public-mode receipt-mode" data-receipt-id="${paymentId}">
+  <main class="public-notfound receipt-card" aria-live="polite">
+    <span class="label">HANDOFF RECEIPT</span>
+    <h1 id="receiptTitle">Checking payment receipt…</h1>
+    <p id="receiptCopy">This page updates from Handoff’s verified receipt service.</p>
+    <div id="receiptDetails" class="receipt-public-details" hidden></div>
+    <button id="copyReceiptLink" class="button button-dark" type="button" hidden>Copy receipt link <span>↗</span></button>
+    <a class="button button-ghost-dark" href="/">Go to Handoff <span>→</span></a>
+  </main>
+  <script src="/receipt.js"></script>
+</body>
+</html>`;
+}
+
+function serveReceiptPage(req, res, paymentId) {
+  return send(res, 200, req.method === 'HEAD' ? '' : receiptPage(paymentId), 'text/html; charset=utf-8');
+}
+
 function readJson(req) {
   return new Promise((resolve, reject) => {
     let data = '';
@@ -183,6 +215,38 @@ const server = http.createServer(async (req, res) => {
     } catch {
       return send(res, 503, JSON.stringify({ message: 'Exchange display is temporarily unavailable.', code: 'DISPLAY_RATES_UNAVAILABLE' }));
     }
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/public/payment-requests') {
+    try {
+      return send(res, 200, JSON.stringify(await paymentRequests.getPublicPaymentRequest(url.searchParams.get('id'))));
+    } catch (error) { return sendError(res, error); }
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/me/payment-requests') {
+    try {
+      const user = await requireDynamicUser(req.headers.authorization);
+      return send(res, 200, JSON.stringify({ requests: await paymentRequests.listPaymentRequests({ user }) }));
+    } catch (error) { return sendError(res, error); }
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/me/payment-requests') {
+    try {
+      const user = await requireDynamicUser(req.headers.authorization);
+      const body = await readJson(req);
+      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['amount', 'note', 'expiresInDays'].includes(key))) {
+        return send(res, 400, JSON.stringify({ message: 'Send only an amount, note, and expiry.', code: 'FIELD_NOT_ALLOWED' }));
+      }
+      return send(res, 201, JSON.stringify(await paymentRequests.createPaymentRequest({ user, amount: body.amount, note: body.note, expiresInDays: body.expiresInDays })));
+    } catch (error) { return sendError(res, error); }
+  }
+
+  const paymentRequestCancel = url.pathname.match(/^\/api\/me\/payment-requests\/(rq_[a-z0-9]{16})\/cancel$/);
+  if (req.method === 'POST' && paymentRequestCancel) {
+    try {
+      const user = await requireDynamicUser(req.headers.authorization);
+      return send(res, 200, JSON.stringify(await paymentRequests.cancelPaymentRequest({ user, publicId: paymentRequestCancel[1] })));
+    } catch (error) { return sendError(res, error); }
   }
 
   if (req.method === 'GET' && url.pathname === '/api/me') {
@@ -334,6 +398,11 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  const receiptPageMatch = url.pathname.match(RECEIPT_PAGE_PATH);
+  if ((req.method === 'GET' || req.method === 'HEAD') && receiptPageMatch) {
+    return serveReceiptPage(req, res, receiptPageMatch[1]);
+  }
+
   if ((req.method === 'GET' || req.method === 'HEAD') && PAYMENT_PAGE_PATH.test(url.pathname)) {
     const [, rawHandle] = url.pathname.match(PAYMENT_PAGE_PATH);
     return servePaymentPage(req, res, rawHandle);
@@ -356,15 +425,16 @@ const server = http.createServer(async (req, res) => {
       if (!body || typeof body !== 'object' || Array.isArray(body)) {
         return send(res, 400, JSON.stringify({ message: 'Send a quote request.' }));
       }
-      const allowed = new Set(['payer', 'sourceNetwork', 'recipientHandle', 'amount']);
+      const allowed = new Set(['payer', 'sourceNetwork', 'recipientHandle', 'amount', 'paymentRequestId']);
       if (Object.keys(body).some(key => !allowed.has(key))) {
-        return send(res, 400, JSON.stringify({ message: 'Only payer, sourceNetwork, recipientHandle, and amount can be submitted.', code: 'FIELD_NOT_ALLOWED' }));
+        return send(res, 400, JSON.stringify({ message: 'Only payer, sourceNetwork, recipientHandle, amount, and payment request ID can be submitted.', code: 'FIELD_NOT_ALLOWED' }));
       }
       const quote = await payments.createPaymentQuote({
         payer: body.payer,
         sourceNetwork: body.sourceNetwork,
         recipientHandle: body.recipientHandle,
-        amount: body.amount
+        amount: body.amount,
+        paymentRequestId: body.paymentRequestId
       });
       return send(res, quote.executable ? 201 : 200, JSON.stringify(quote));
     } catch (error) {

@@ -9,7 +9,7 @@ const { PGlite } = require('@electric-sql/pglite');
 const { pgcrypto } = require('@electric-sql/pglite/contrib/pgcrypto');
 
 const ROOT = path.join(__dirname, '..');
-const MIGRATIONS = ['0001_handoff_mainnet_schema.sql', '0002_claim_handoff_profile.sql', '0003_payment_execution_guards.sql', '0004_exact_output_merchant_settlement.sql', '0005_handoff_to_handoff_transfers.sql'];
+const MIGRATIONS = ['0001_handoff_mainnet_schema.sql', '0002_claim_handoff_profile.sql', '0003_payment_execution_guards.sql', '0004_exact_output_merchant_settlement.sql', '0005_handoff_to_handoff_transfers.sql', '0006_fixed_payment_requests.sql'];
 const USDC_BASE = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const HASH = n => `0x${n.toString(16).padStart(64, '0')}`;
 const PAYER = n => `0x${n.toString(16).padStart(40, '0')}`;
@@ -40,6 +40,26 @@ function reserve({ payer, amount, destination = amount, routeFee = 0n, daily = '
     [
       payer, profileId, walletId, 8453, USDC_BASE, amount.toString(), destination.toString(), routeFee.toString(), destination.toString(),
       `req-${++seq}-${Date.now()}`, new Date(Date.now() + expiresInMinutes * 60_000).toISOString(), perPayment, daily
+    ]
+  );
+}
+
+async function createFixedRequest(amount = 10n * USDC, expiresInMinutes = 60) {
+  const id = `rq_${(++seq).toString(36).padStart(16, '0')}`;
+  const [row] = await q(
+    `insert into public.payment_requests (public_id, recipient_profile_id, recipient_wallet_id, requested_amount_minor, expires_at)
+     values ($1,$2,$3,$4,$5) returning *`,
+    [id, profileId, walletId, amount.toString(), new Date(Date.now() + expiresInMinutes * 60_000).toISOString()]
+  );
+  return row;
+}
+
+function reserveFixed({ requestId, payer, amount, destination = amount, routeFee = 0n }) {
+  return q(
+    `select * from public.reserve_payment_request_attempt($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      requestId, payer, profileId, walletId, 8453, USDC_BASE, amount.toString(), destination.toString(), routeFee.toString(), destination.toString(),
+      `fixed-${++seq}-${Date.now()}`, new Date(Date.now() + 5 * 60_000).toISOString(), '25000000', '100000000'
     ]
   );
 }
@@ -110,11 +130,47 @@ test.after(async () => {
   await db?.close();
 });
 
-test('migrations 0001 → 0005 apply in order and attach the payment guard trigger', async () => {
+test('migrations 0001 → 0006 apply in order and attach the payment guard trigger', async () => {
   const [trigger] = await q(`select tgname from pg_trigger where tgname = 'payment_attempts_guard_update'`);
   assert.equal(trigger?.tgname, 'payment_attempts_guard_update');
   const [fn] = await q(`select proname from pg_proc where proname = 'reserve_payment_attempt'`);
   assert.equal(fn?.proname, 'reserve_payment_attempt');
+});
+
+test('fixed payment requests bind exact terms to one attempt and change to paid only on settlement', async () => {
+  const request = await createFixedRequest(10n * USDC);
+  const [attempt] = await reserveFixed({ requestId: request.public_id, payer: PAYER(9010), amount: 11n * USDC, destination: 10n * USDC, routeFee: USDC });
+  assert.equal(attempt.payment_request_id, request.id);
+  await expectError(
+    reserveFixed({ requestId: request.public_id, payer: PAYER(9011), amount: 10n * USDC }),
+    /REQUEST_PAYMENT_IN_PROGRESS/
+  );
+  const [pendingRequest] = await q(`select status from public.payment_requests where id = $1`, [request.id]);
+  assert.equal(pendingRequest.status, 'active');
+
+  await q(
+    `update public.payment_attempts
+     set status = 'routing', source_tx_hash = $2, actual_source_amount = $3
+     where id = $1`,
+    [attempt.id, HASH(9010), String(11n * USDC)]
+  );
+  await q(
+    `update public.payment_attempts
+     set status = 'settled', destination_tx_hash = $2, settled_at = now(), final_destination_amount = $3
+     where id = $1`,
+    [attempt.id, HASH(9011), String(10n * USDC)]
+  );
+  const [paidRequest] = await q(`select status, paid_at from public.payment_requests where id = $1`, [request.id]);
+  assert.equal(paidRequest.status, 'paid');
+  assert.ok(paidRequest.paid_at);
+});
+
+test('fixed requests reject a substituted exact amount before reserving an attempt', async () => {
+  const request = await createFixedRequest(10n * USDC);
+  await expectError(
+    reserveFixed({ requestId: request.public_id, payer: PAYER(9020), amount: 10n * USDC, destination: 9n * USDC, routeFee: USDC }),
+    /REQUEST_AMOUNT_MISMATCH/
+  );
 });
 
 test('Handoff transfer migration creates the guarded one-time authorization lifecycle', async () => {

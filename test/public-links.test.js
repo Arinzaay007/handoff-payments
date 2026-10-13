@@ -37,7 +37,7 @@ test('canonical payment links are derived from the page origin, not a constant d
   assert.ok(copyCalls.length >= 6);
 });
 
-test('the recipient app removes the unfinished request composer and offers one real payment-page share action', () => {
+test('the recipient app replaces retired request UI with a persisted fixed-request composer and canonical sharing', () => {
   for (const removed of ['generateRequest', 'sharePreview', 'requestAmount', 'requestNote', 'requestExpiry', 'payment links coming soon', 'share link coming soon']) {
     assert.equal(html.includes(removed) || appSource.includes(removed), false, `${removed} is not presented as a recipient feature`);
   }
@@ -146,6 +146,31 @@ test('Make a payment opens the payer-only flow with the handle prefilled, not a 
   assert.equal(doc.querySelector('#payModal').classList.contains('visible'), true);
   assert.equal(doc.querySelector('#payRecipient').value, '@morgan');
   assert.equal(doc.querySelector('#payModal [data-step="choose"]').classList.contains('active'), true);
+});
+
+test('a shared fixed request waits for verified terms and locks the payer amount', async () => {
+  const { doc, requests } = await load({
+    url: 'https://handoff-payments.onrender.com/@morgan?request=rq_1234567890abcdef',
+    bodyAttrs: ' class="public-mode" data-public-handle="morgan"',
+    routes: {
+      'GET /api/public/profile?handle=morgan': () => ({ username: 'morgan', displayName: 'Morgan Ellis' }),
+      'GET /api/public/payment-requests?id=rq_1234567890abcdef': () => ({
+        id: 'rq_1234567890abcdef', amount: '2.50', note: 'September design work', status: 'active',
+        expiresAt: '2099-10-31T12:00:00.000Z', recipient: { username: 'morgan', displayName: 'Morgan Ellis' }
+      })
+    }
+  });
+  const button = doc.querySelector('#publicPayButton');
+  assert.equal(button.disabled, false);
+  assert.match(button.textContent, /Pay \$2\.50/);
+  assert.ok(requests.some(entry => entry.url === '/api/public/payment-requests?id=rq_1234567890abcdef'));
+
+  button.click();
+  await settle();
+  assert.equal(doc.querySelector('#payRecipient').value, '@morgan');
+  assert.equal(doc.querySelector('#payAmount').value, '2.50');
+  assert.equal(doc.querySelector('#payAmount').readOnly, true);
+  assert.equal(appSource.includes('paymentRequestId: state.publicRequest.id'), true);
 });
 
 test('Share my payment page copies the real /@username URL on the current origin', async () => {
