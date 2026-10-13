@@ -25,7 +25,7 @@ const supabase = require('../src/supabase');
 const relay = require('../src/relayClient');
 const USDC = 1_000_000n;
 
-const store = { profiles: [], recipient_wallets: [], payment_attempts: [], writes: [], inserts: [] };
+const store = { profiles: [], recipient_wallets: [], payment_attempts: [], payment_requests: [], writes: [], inserts: [] };
 const relayCalls = { createQuote: [], getIntentStatus: 0, getChains: 0 };
 let chainsForRelay = fixtures.chainsFixture();
 let relayQuote = null;
@@ -54,10 +54,13 @@ supabase.request = async (requestPath, options = {}) => {
   const method = options.method || 'GET';
   const [table, query = ''] = requestPath.split('?');
   const params = [...new URLSearchParams(query).entries()];
-  if (table === 'rpc/reserve_payment_attempt') {
+  if (table === 'rpc/reserve_payment_attempt' || table === 'rpc/reserve_payment_request_attempt') {
     const body = options.body;
     const row = {
       id: crypto.randomUUID(),
+      payment_request_id: body.p_payment_request_public_id
+        ? store.payment_requests.find(item => item.public_id === body.p_payment_request_public_id)?.id || null
+        : null,
       payer_address: body.p_payer_address,
       recipient_profile_id: body.p_recipient_profile_id,
       recipient_wallet_id: body.p_recipient_wallet_id,
@@ -109,6 +112,7 @@ function resetStore() {
   store.profiles.length = 0;
   store.recipient_wallets.length = 0;
   store.payment_attempts.length = 0;
+  store.payment_requests.length = 0;
   store.writes.length = 0;
   store.inserts.length = 0;
   relayCalls.createQuote.length = 0;
@@ -378,6 +382,29 @@ test('an executable quote reserves one attempt, requests protocol data, and neve
   assert.equal(store.inserts.length, 1);
   assert.equal(store.inserts[0].p_recipient_wallet_id, 'wallet-morgan');
   assert.equal(JSON.stringify(result).includes(RECIPIENT), false, 'the browser response carries no recipient wallet');
+});
+
+test('a fixed request reserves through its request-bound database function and refuses altered terms', async () => {
+  resetStore();
+  store.payment_requests.push({
+    id: 'request-morgan', public_id: 'rq_1234567890abcdef', recipient_profile_id: 'profile-morgan', recipient_wallet_id: 'wallet-morgan',
+    requested_amount_minor: '24500000', status: 'active', expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+    profiles: { username: 'morgan', display_name: 'Morgan Ellis' }
+  });
+  relayQuote = fixtures.quoteFixture({ payer: PAYER, recipient: RECIPIENT, amountMinor: 24_500_000n, sourceAmountMinor: 25_000_000n }).quote;
+  const result = await payments.createPaymentQuote({
+    payer: PAYER, sourceNetwork: 'base', recipientHandle: 'morgan', amount: '24.5', paymentRequestId: 'rq_1234567890abcdef'
+  });
+  assert.equal(result.executable, true, JSON.stringify(result));
+  assert.equal(store.inserts.length, 1);
+  assert.equal(store.inserts[0].p_payment_request_public_id, 'rq_1234567890abcdef');
+  assert.equal(store.payment_attempts[0].payment_request_id, 'request-morgan');
+
+  await assert.rejects(
+    payments.createPaymentQuote({ payer: PAYER, sourceNetwork: 'base', recipientHandle: 'morgan', amount: '24.49', paymentRequestId: 'rq_1234567890abcdef' }),
+    error => error.code === 'REQUEST_TERMS_MISMATCH'
+  );
+  assert.equal(relayCalls.createQuote.length, 1, 'a substituted amount is refused before a second Relay quote');
 });
 
 test('a quote preview reserves nothing and offers no steps', async () => {

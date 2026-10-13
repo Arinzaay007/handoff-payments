@@ -46,6 +46,8 @@ test('the QR browser bundle exposes a working local payment-page encoder', async
   assert.equal(dataUrl, 'data:image/png;base64,qr-test');
   assert.equal(renderedPixels.length, 1, 'the encoder renders a local canvas image');
   assert.ok(renderedPixels[0] > 0);
+  const fixedRequestQr = await window.HandoffQr.paymentPageDataUrl('https://handoff.test/@morgan?request=rq_1234567890abcdef');
+  assert.equal(fixedRequestQr, 'data:image/png;base64,qr-test');
   assert.throws(
     () => window.HandoffQr.paymentPageDataUrl('https://handoff.test/@morgan?amount=25'),
     /valid Handoff payment page/i

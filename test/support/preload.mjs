@@ -163,7 +163,10 @@ globalThis.fetch = async (input, init = {}) => {
         chain_id: 143
       }]);
     }
-    if ((init.method || 'GET') === 'PATCH' && path.startsWith('profiles?') && path.includes('auth_subject=eq.dynamic-user-test-1')) {
+    if (path.startsWith('profiles?') && path.includes('auth_subject=eq.dynamic-user-test-1')) {
+      if ((init.method || 'GET') !== 'PATCH') return json([{
+        id: '11111111-1111-4111-8111-111111111111', username: 'ada_01', display_name: 'Ada One', avatar_url: null
+      }]);
       return json([{
         id: '11111111-1111-4111-8111-111111111111',
         username: 'ada_01',
@@ -197,11 +200,52 @@ globalThis.fetch = async (input, init = {}) => {
         auth_subject: 'dynamic-subject-secret-dormant', email: 'dormant@example.com'
       }]);
     }
+    if (path.startsWith('recipient_wallets?') && path.includes('profile_id=eq.11111111-1111-4111-8111-111111111111')) {
+      return json([{ id: '44444444-4444-4444-8444-444444444444', wallet_address: '0xabcdef0123456789abcdef0123456789abcdef01', chain_id: 143 }]);
+    }
     if (path.startsWith('recipient_wallets?') && path.includes(`profile_id=eq.${FIXTURE.morganId}`)) {
       return json([{ wallet_address: FIXTURE.morganWallet, chain_id: 143 }]);
     }
     if (path.startsWith('payment_attempts?') && path.includes(`recipient_profile_id=eq.${FIXTURE.morganId}`)) {
       return json(morganAttempts());
+    }
+    if (path === 'payment_requests' && (init.method || 'GET') === 'POST') {
+      return json([{
+        public_id: body.public_id,
+        requested_amount_minor: body.requested_amount_minor,
+        memo: body.memo,
+        status: 'active',
+        expires_at: body.expires_at,
+        paid_at: null,
+        created_at: '2026-10-13T12:00:00.000Z'
+      }]);
+    }
+    if (path.startsWith('payment_requests?') && path.includes('recipient_profile_id=eq.11111111-1111-4111-8111-111111111111')) {
+      return json([{
+        public_id: 'rq_1234567890abcdef', requested_amount_minor: '2500000', memo: 'September design work', status: 'active',
+        expires_at: '2099-10-31T12:00:00.000Z', paid_at: null, created_at: '2026-10-13T12:00:00.000Z'
+      }]);
+    }
+    if (path === 'rpc/cancel_fixed_payment_request') {
+      return json([{
+        public_id: body.p_payment_request_public_id, requested_amount_minor: '2500000', memo: 'September design work', status: 'cancelled',
+        expires_at: '2099-10-31T12:00:00.000Z', paid_at: null, created_at: '2026-10-13T12:00:00.000Z'
+      }]);
+    }
+    if (path.startsWith('payment_requests?') && path.includes('public_id=eq.rq_1234567890abcdef')) {
+      return json([{
+        id: '12345678-1234-4234-8234-123456789012',
+        public_id: 'rq_1234567890abcdef',
+        recipient_profile_id: FIXTURE.morganId,
+        recipient_wallet_id: '44444444-4444-4444-8444-444444444444',
+        requested_amount_minor: '2500000',
+        memo: 'September design work',
+        status: 'active',
+        expires_at: '2099-10-31T12:00:00.000Z',
+        paid_at: null,
+        created_at: '2026-10-13T12:00:00.000Z',
+        profiles: { username: 'morgan', display_name: 'Morgan Ellis' }
+      }]);
     }
     return json([]);
   }

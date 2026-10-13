@@ -96,6 +96,20 @@ test('malformed handles are not found, and their input is never echoed into the 
   assert.match(tooShort.text, /id="publicNotFound"/);
 });
 
+test('a public fixed request exposes only its payment terms and payment-page identity', async () => {
+  const response = await get('/api/public/payment-requests?id=rq_1234567890abcdef');
+  const body = JSON.parse(response.text);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(Object.keys(body).sort(), ['amount', 'createdAt', 'expiresAt', 'id', 'note', 'paidAt', 'recipient', 'status']);
+  assert.equal(body.id, 'rq_1234567890abcdef');
+  assert.equal(body.amount, '2.50');
+  assert.equal(body.recipient.username, 'morgan');
+  assert.equal(body.recipient.displayName, 'Morgan Ellis');
+  assert.equal(response.text.includes(MORGAN_WALLET), false);
+  assert.equal(/recipient_wallet_id|recipient_profile_id|payer_address/i.test(response.text), false);
+});
+
 test('GET /api/public/profile returns only display-safe fields for an active handle', async () => {
   const response = await get('/api/public/profile?handle=morgan');
   const body = JSON.parse(response.text);
@@ -129,6 +143,18 @@ test('GET /api/public/profile requires a handle', async () => {
   const response = await get('/api/public/profile');
 
   assert.equal(response.status, 400);
+});
+
+test('a UUID-shaped receipt link serves a safe, shareable receipt shell with no payment data embedded', async () => {
+  const receiptId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const response = await get(`/receipts/${receiptId}`);
+  assert.equal(response.status, 200);
+  assert.match(response.text, /data-receipt-id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"/);
+  assert.match(response.text, /src="\/receipt\.js"/);
+  assertNoSensitiveData(response.text);
+  const head = await get(`/receipts/${receiptId}`, 'HEAD');
+  assert.equal(head.status, 200);
+  assert.equal(head.text, '');
 });
 
 test('the page route is GET-only and never shadows the API or static assets', async () => {

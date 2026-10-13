@@ -9,9 +9,11 @@ import QRCode from 'qrcode';
 
 function paymentPageDataUrl(paymentPageUrl) {
   const url = new URL(paymentPageUrl);
+  const requestId = url.searchParams.get('request');
+  const validRequest = requestId && /^rq_[a-z0-9]{16}$/.test(requestId) && [...url.searchParams.keys()].length === 1;
   if (!/^https?:$/.test(url.protocol)
     || !/^\/@[a-z0-9_]{3,24}$/i.test(url.pathname)
-    || url.search || url.hash || url.username || url.password) {
+    || (url.search && !validRequest) || url.hash || url.username || url.password) {
     throw new Error('A valid Handoff payment page is required to create a QR code.');
   }
   return QRCode.toDataURL(url.toString(), {
