@@ -264,6 +264,38 @@ test('a claimed recipient can show a local QR code for exactly their canonical p
   assert.equal(/amount|note|request/i.test(doc.querySelector('#qrModal').textContent), false, 'QR shares only the payment page');
 });
 
+test('cashier creates one fixed customer QR, waits for confirmation, and can cancel before payment', async () => {
+  let generatedUrl = null;
+  const { doc, requests } = await signInWithPortfolio({
+    balance: { status: 'available', amount: '30.00' }, activity: []
+  }, {
+    'GET /api/me/payment-requests': () => ({ body: { requests: [] } }),
+    'POST /api/me/payment-requests': request => ({ body: {
+      id: 'rq_1234567890abcdef', amount: request.body.amount, note: 'Cashier payment', status: 'active',
+      expiresAt: '2099-10-31T12:00:00.000Z', createdAt: '2026-10-13T12:00:00.000Z'
+    } }),
+    'POST /api/me/payment-requests/rq_1234567890abcdef/cancel': () => ({ body: {
+      id: 'rq_1234567890abcdef', amount: '7.25', status: 'cancelled', expiresAt: '2099-10-31T12:00:00.000Z'
+    } })
+  }, {
+    qr: { paymentPageDataUrl: async url => { generatedUrl = url; return 'data:image/png;base64,cashier'; } }
+  });
+  await waitFor(() => !doc.querySelector('#openCashier').disabled, 'cashier becomes available after sign-in');
+  doc.querySelector('#openCashier').click();
+  doc.querySelector('#cashierAmount').value = '7.25';
+  doc.querySelector('#startCashier').click();
+  await waitFor(() => doc.querySelector('#cashierQrImage').hidden === false, 'fixed customer QR');
+  assert.equal(generatedUrl, 'https://handoff.test/@morgan?request=rq_1234567890abcdef');
+  assert.deepEqual(requests.find(request => request.method === 'POST' && request.url === '/api/me/payment-requests').body, {
+    amount: '7.25', note: 'Cashier payment', expiresInDays: 1
+  });
+  assert.equal(/wallet|network|gas|chain|crypto/i.test(doc.querySelector('#cashierModal').textContent), false);
+
+  doc.querySelector('#cashierCancel').click();
+  await waitFor(() => doc.querySelector('[data-cashier-step="amount"]').classList.contains('active'), 'cashier cancellation');
+  assert.ok(requests.some(request => request.method === 'POST' && request.url.endsWith('/rq_1234567890abcdef/cancel')));
+});
+
 test('bank withdrawal is an explicit guided demo that never sends funds, bank details, or a withdrawal request', async () => {
   const { doc, requests } = await signInWithPortfolio({
     balance: { status: 'available', amount: '82.00' }, activity: [], checkedAt: '2026-10-11T13:50:00.000Z'

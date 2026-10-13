@@ -5,6 +5,7 @@ const state = {
   payment: { quote: null, payer: null, paymentId: null, receipt: null, pendingHash: null, busy: false, flow: 0 },
   publicRequest: null,
   paymentRequests: { requests: [], loaded: false, loading: false },
+  cashier: { request: null, polling: null, busy: false },
   recipient: null,
   // Signed-in owner portfolio from /api/me/portfolio: the verified on-chain Monad USDC balance
   // and verified recipient receipt activity. Balance status: idle | syncing | available | unavailable.
@@ -109,6 +110,7 @@ function closeModals() {
   $('#modalBackdrop').classList.remove('visible');
   $$('.modal.visible').forEach(modal => { modal.classList.remove('visible'); modal.setAttribute('aria-hidden', 'true'); });
   stopHandoffSendPolling?.();
+  stopCashierPolling?.();
 }
 function closeMobileDrawer() {
   $('.sidebar')?.classList.remove('open');
@@ -397,6 +399,7 @@ function renderIdentity() {
   $('#sharePageCopy').textContent = profile ? 'Copy or show this page to anyone who needs to pay you.' : 'New here? Start with email, then set up a passkey.';
   $('#sharePageLink').textContent = profile ? canonicalPaymentUrl(profile.username).replace(/^https?:\/\//, '') : '—';
   $('#createFixedRequest').disabled = !profile;
+  $('#openCashier').disabled = !profile;
   $('#sharePaidPage').disabled = !profile;
   $('#showPaymentQr').disabled = !profile;
   $('#editProfile').disabled = !profile;
@@ -950,6 +953,8 @@ function resetLocalSession() {
   state.auth.profile = null;
   state.portfolio = { balance: { status: 'idle', amount: null }, activity: [], loaded: false };
   state.paymentRequests = { requests: [], loaded: false, loading: false };
+  stopCashierPolling();
+  state.cashier = { request: null, polling: null, busy: false };
   renderIdentity();
   renderActivity();
   renderPaymentRequests();
@@ -1689,6 +1694,130 @@ async function createPaymentRequest() {
   }
 }
 
+function showCashierStep(name) {
+  $$('[data-cashier-step]').forEach(step => step.classList.toggle('active', step.dataset.cashierStep === name));
+}
+function stopCashierPolling() {
+  if (state.cashier.polling) clearTimeout(state.cashier.polling);
+  state.cashier.polling = null;
+}
+function openCashier() {
+  if (!state.auth.profile) return openAuthFlow();
+  stopCashierPolling();
+  state.cashier = { request: null, polling: null, busy: false };
+  $('#cashierAmount').value = '10.00';
+  $('#cashierAmountStatus').textContent = '';
+  $('#cashierStatus').textContent = 'Waiting for payment confirmation…';
+  $('#cashierQrImage').hidden = true;
+  $('#cashierQrImage').removeAttribute('src');
+  showCashierStep('amount');
+  openModal('cashierModal');
+}
+async function startCashier() {
+  const button = $('#startCashier');
+  if (state.cashier.busy) return;
+  state.cashier.busy = true;
+  button.disabled = true; button.textContent = 'Creating…';
+  $('#cashierAmountStatus').textContent = '';
+  try {
+    const created = await apiFetch('/api/me/payment-requests', {
+      method: 'POST', body: { amount: $('#cashierAmount').value.trim(), note: 'Cashier payment', expiresInDays: 1 }
+    });
+    state.cashier.request = created;
+    state.paymentRequests.loaded = false;
+    refreshPaymentRequests({ force: true });
+    const link = `${canonicalPaymentUrl(state.auth.profile.username)}?request=${encodeURIComponent(created.id)}`;
+    $('#cashierRequestSummary').textContent = `Pay exactly $${created.amount}. We will confirm it here before the next customer.`;
+    $('#cashierQrImage').hidden = true;
+    $('#cashierQrImage').removeAttribute('src');
+    $('#cashierQrLoading').hidden = false;
+    $('#cashierStatus').textContent = 'Waiting for payment confirmation…';
+    showCashierStep('qr');
+    try {
+      if (!window.HandoffQr?.paymentPageDataUrl) throw new Error('QR code generator unavailable.');
+      const dataUrl = await window.HandoffQr.paymentPageDataUrl(link);
+      if (state.cashier.request?.id !== created.id) return;
+      $('#cashierQrImage').src = dataUrl;
+      $('#cashierQrImage').hidden = false;
+      $('#cashierQrLoading').hidden = true;
+    } catch {
+      $('#cashierQrLoading').hidden = true;
+      $('#cashierStatus').textContent = 'The QR code could not be created. Cancel this customer and try again.';
+      return;
+    }
+    pollCashierRequest();
+  } catch (error) {
+    if (error.status === 401) return expireSession();
+    $('#cashierAmountStatus').textContent = error.message || 'We could not create this payment request.';
+  } finally {
+    state.cashier.busy = false;
+    button.disabled = false; button.innerHTML = 'Show payment QR <span>→</span>';
+  }
+}
+function applyCashierRequestStatus(request) {
+  if (!request || state.cashier.request?.id !== request.id) return;
+  state.cashier.request = request;
+  if (request.status === 'paid') {
+    stopCashierPolling();
+    $('#cashierPaidSummary').textContent = `$${request.amount} has been confirmed. You can now serve the next customer.`;
+    showCashierStep('paid');
+    refreshPortfolio();
+    refreshPaymentRequests({ force: true });
+    return;
+  }
+  if (request.status === 'cancelled' || request.status === 'expired') {
+    stopCashierPolling();
+    $('#cashierAmountStatus').textContent = request.status === 'expired' ? 'This customer request expired.' : 'This customer request was cancelled.';
+    showCashierStep('amount');
+    return;
+  }
+  $('#cashierStatus').textContent = 'Waiting for payment confirmation…';
+  pollCashierRequest();
+}
+function pollCashierRequest() {
+  stopCashierPolling();
+  const id = state.cashier.request?.id;
+  if (!id) return;
+  state.cashier.polling = setTimeout(async () => {
+    try {
+      const response = await fetch(`/api/public/payment-requests?id=${encodeURIComponent(id)}`);
+      const request = await response.json();
+      if (response.ok) return applyCashierRequestStatus(request);
+    } catch { /* Keep an honest pending state when the status endpoint is temporarily unavailable. */ }
+    if (state.cashier.request?.id === id) {
+      $('#cashierStatus').textContent = 'Still checking payment confirmation…';
+      pollCashierRequest();
+    }
+  }, 2500);
+}
+async function cancelCashier() {
+  const request = state.cashier.request;
+  if (!request?.id) return showCashierStep('amount');
+  const button = $('#cashierCancel');
+  button.disabled = true; button.textContent = 'Cancelling…';
+  try {
+    await apiFetch(`/api/me/payment-requests/${encodeURIComponent(request.id)}/cancel`, { method: 'POST', body: {} });
+    stopCashierPolling();
+    state.cashier.request = null;
+    state.paymentRequests.loaded = false;
+    await refreshPaymentRequests({ force: true });
+    $('#cashierAmountStatus').textContent = 'This customer request was cancelled.';
+    showCashierStep('amount');
+  } catch (error) {
+    if (error.status === 401) return expireSession();
+    $('#cashierStatus').textContent = error.message || 'This payment is already in progress. Keep this screen open while we confirm it.';
+  } finally {
+    button.disabled = false; button.innerHTML = 'Cancel this customer <span>×</span>';
+  }
+}
+function nextCashierCustomer() {
+  stopCashierPolling();
+  state.cashier.request = null;
+  $('#cashierAmount').value = '10.00';
+  $('#cashierAmountStatus').textContent = '';
+  showCashierStep('amount');
+}
+
 function bindEvents() {
   $$('.nav-item, .mobile-nav-item').forEach(item => item.addEventListener('click', () => goTo(item.dataset.page)));
   $$('[data-go]').forEach(item => item.addEventListener('click', () => goTo(item.dataset.go)));
@@ -1703,6 +1832,10 @@ function bindEvents() {
   $('#completeWithdrawDemo').addEventListener('click', () => showWithdrawDemoStep('done'));
   $('#createRequest').addEventListener('click', openPaymentRequest);
   $('#createFixedRequest').addEventListener('click', openPaymentRequest);
+  $('#openCashier').addEventListener('click', openCashier);
+  $('#startCashier').addEventListener('click', startCashier);
+  $('#cashierCancel').addEventListener('click', cancelCashier);
+  $('#cashierNext').addEventListener('click', nextCashierCustomer);
   $('#refreshPaymentRequests').addEventListener('click', () => refreshPaymentRequests({ force: true }));
   $('#createPaymentRequest').addEventListener('click', createPaymentRequest);
   $('#copyPaymentRequest').addEventListener('click', () => copyText($('#paymentRequestLink').textContent, 'Payment request copied'));
